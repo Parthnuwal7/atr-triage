@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+*.csv
+reports/
+dashboards/
+pgdata/

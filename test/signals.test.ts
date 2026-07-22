@@ -46,6 +46,12 @@ describe('computeSignals', () => {
     const t: Turn = { ...base, toolTrace: [{ toolName: 'queryDatabase', kind: 'error', errorCode: 'E', rowCount: null }] };
     expect(computeSignals(t, opts).toolError).toBe(true);
   });
+  it("flags tool-error for atr-be's real kind values", () => {
+    const execErr: Turn = { ...base, toolTrace: [{ toolName: 'queryDatabase', kind: 'execution_error', errorCode: 'E_TOOL', rowCount: null }] };
+    expect(computeSignals(execErr, opts).toolError).toBe(true);
+    const policy: Turn = { ...base, toolTrace: [{ toolName: 'queryDatabase', kind: 'policy_rejection', errorCode: 'POLICY', rowCount: null }] };
+    expect(computeSignals(policy, opts).toolError).toBe(true);
+  });
   it('flags no-tool-call only for data queries with a trace showing no calls', () => {
     const dataNoTool: Turn = { ...base, toolTrace: [] };
     expect(computeSignals(dataNoTool, opts).noToolCall).toBe(true);

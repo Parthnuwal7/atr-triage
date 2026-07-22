@@ -16,9 +16,14 @@ export function isRefusal(text: string): boolean {
   return REFUSAL.test(t);
 }
 
+// atr-be's classifyToolResultPayload persists kind ∈ {'success','execution_error',
+// 'policy_rejection'}; a hand-mocked judge/test may use 'error'. Treat any non-success
+// kind as a failure so the toolError signal actually fires on real persisted traces.
+const ERROR_KINDS = new Set(['error', 'execution_error', 'policy_rejection']);
+
 export function computeSignals(turn: Turn, opts: { latencyOutlierMs: number }): Signals {
   const noResponse = turn.assistantMessageId === null;
-  const toolError = Array.isArray(turn.toolTrace) && turn.toolTrace.some(c => c.kind === 'error');
+  const toolError = Array.isArray(turn.toolTrace) && turn.toolTrace.some(c => ERROR_KINDS.has(c.kind));
   // no-tool-call: ONLY assertable when a trace exists (post-patch) and is empty, and the
   // query looked like a data query. Historical turns (trace === null) are never asserted.
   const noToolCall =

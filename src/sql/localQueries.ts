@@ -12,3 +12,11 @@ export const insertTurnQuery = `
   ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
   ON CONFLICT (run_id, message_id) DO NOTHING
 `;
+
+export const insertVerdictQuery = `
+  INSERT INTO verdicts (run_id, message_id, verdict, category, severity, rationale)
+  VALUES ($1, $2, $3, $4, $5, $6)
+  ON CONFLICT (run_id, message_id) DO UPDATE SET
+    verdict = EXCLUDED.verdict, category = EXCLUDED.category,
+    severity = EXCLUDED.severity, rationale = EXCLUDED.rationale, judged_at = now()
+`;

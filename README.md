@@ -3,10 +3,14 @@
 Local, read-only ARIA log triage & grading. Reads the product DB, flags suspicious turns,
 ingests LLM-judge verdicts, and produces versioned HTML dashboards + a golden set.
 
+The local store is embedded **PGlite** (real Postgres, in-process) — no Docker, no WSL,
+no container. Data persists to the `LOCAL_DATABASE_URL` directory (e.g. `./localdb`).
+
 ## Setup
-1. `cp .env.example .env` and fill `PROD_READ_DATABASE_URL` (read-only role) + `LOCAL_DATABASE_URL`.
+1. `cp .env.example .env` and fill `PROD_READ_DATABASE_URL` (read-only role). Leave
+   `LOCAL_DATABASE_URL=./localdb` (a folder path, not a postgres URL).
 2. `pnpm install`
-3. `pnpm db:up && pnpm migrate`
+3. `pnpm migrate`
 
 ## Loop
 ```

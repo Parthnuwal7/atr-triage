@@ -9,11 +9,10 @@
     "migrate": "tsx src/cli.ts migrate",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
-    "db:up": "docker compose up -d",
-    "db:down": "docker compose down"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.2.12",
     "csv-parse": "^5.5.6",
     "csv-stringify": "^6.5.1",
     "dotenv": "^16.4.5",

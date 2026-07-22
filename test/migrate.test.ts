@@ -1,15 +1,18 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { loadConfig } from '../src/config.js';
+import type { TriageConfig } from '../src/config.js';
 import { getLocalPool } from '../src/db.js';
 import { runMigrations } from '../src/migrate.js';
 
-describe('runMigrations (integration — needs `pnpm db:up`)', () => {
-  const pool = getLocalPool(loadConfig());
-  beforeAll(async () => { await runMigrations(pool); });
-  afterAll(async () => { await pool.end(); });
+// In-memory PGlite — no Docker, no files, runs anywhere.
+const cfg: TriageConfig = { prodReadUrl: 'unused', localUrl: 'memory://' };
+
+describe('runMigrations (embedded PGlite — no infra needed)', () => {
+  const db = getLocalPool(cfg);
+  afterAll(async () => { await db.end(); });
 
   it('creates the five core tables', async () => {
-    const { rows } = await pool.query(
+    await runMigrations(db);
+    const { rows } = await db.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema='public' ORDER BY table_name`
     );

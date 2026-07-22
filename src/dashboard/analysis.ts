@@ -1,4 +1,4 @@
-import type pg from 'pg';
+import type { LocalDb } from '../db.js';
 
 export interface AnalysisModel {
   runId: string;
@@ -16,7 +16,7 @@ export interface AnalysisModel {
 
 const VERDICT_COLORS: Record<string, string> = { good: '#2e7d32', 'needs-work': '#f9a825', broken: '#c62828' };
 
-export async function loadAnalysis(local: pg.Pool, runId: string): Promise<AnalysisModel> {
+export async function loadAnalysis(local: LocalDb, runId: string): Promise<AnalysisModel> {
   const run = (await local.query('SELECT workspace, from_date, to_date FROM runs WHERE run_id=$1', [runId])).rows[0] ?? {};
   const total = Number((await local.query('SELECT count(*)::int c FROM turns WHERE run_id=$1', [runId])).rows[0].c);
   const downvotes = Number((await local.query('SELECT count(*)::int c FROM turns WHERE run_id=$1 AND downvoted', [runId])).rows[0].c);

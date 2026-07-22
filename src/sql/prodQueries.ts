@@ -24,6 +24,14 @@ export const getUserPreferencesQuery = `
   SELECT key, value FROM user_preferences WHERE user_fk = $1 ORDER BY updated_at DESC LIMIT 200
 `;
 
+// Mirrors atr-be's active-memory read: memory_content column, only live (active,
+// not expired) rows, most-relevant first.
 export const getConversationMemoryQuery = `
-  SELECT content AS value FROM conversation_memory WHERE chat_id = $1 ORDER BY created_at DESC LIMIT 50
+  SELECT memory_content AS value
+  FROM conversation_memory
+  WHERE chat_id = $1
+    AND is_active = true
+    AND (expires_at IS NULL OR expires_at > NOW())
+  ORDER BY relevance_score DESC, created_at DESC
+  LIMIT 50
 `;

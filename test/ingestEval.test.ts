@@ -4,7 +4,7 @@ import { parseEvalJsonl } from '../src/ingestEval/ingestCommand.js';
 const jsonl = [
   JSON.stringify({ kind: 'run_start', ts: '2026-07-23T10:00:00Z', clientId: 'ws1', models: ['gpt-oss-120b'], cases: 2 }),
   JSON.stringify({
-    kind: 'case', index: 1, category: 'Normal Lookup', model: 'gpt-oss-120b',
+    kind: 'case', index: 1, id: 'LOOK-01', category: 'Normal Lookup', model: 'gpt-oss-120b',
     input: 'what was my roas', output: 'ROAS 3.2', expected_tool: 'queryDatabase', tool_called: 'queryDatabase',
     all_tools_called: ['queryDatabase'], tool_calls: [{ name: 'queryDatabase', args: { metric: 'roas' }, kind: 'success', errorCode: null, rowCount: 5 }],
     steps: 1, tokens_total: 1200, tokens_in: 1000, tokens_out: 200, cost_usd: 0.004,
@@ -27,7 +27,7 @@ describe('parseEvalJsonl', () => {
     expect(meta.date).toBe('2026-07-23');
     expect(cases).toHaveLength(2);
     expect(cases[0]).toMatchObject({
-      index: 1, category: 'Normal Lookup', input: 'what was my roas',
+      index: 1, id: 'LOOK-01', category: 'Normal Lookup', input: 'what was my roas',
       expected_tool: 'queryDatabase', tool_called: 'queryDatabase',
       tokens_total: 1200, cost_usd: 0.004, steps: 1, accuracy_score: 100,
     });

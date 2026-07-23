@@ -6,6 +6,7 @@ import { insertRunQuery, insertEvalTurnQuery } from '../sql/localQueries.js';
 
 export interface EvalCaseRow {
   index: number;
+  id: string | null; // benchmark CSV id (e.g. LOOK-01) when present
   category: string;
   model: string;
   input: string;
@@ -51,6 +52,7 @@ export function parseEvalJsonl(text: string): { meta: EvalMeta; cases: EvalCaseR
     } else if (obj.kind === 'case') {
       cases.push({
         index: Number(obj.index),
+        id: (obj.id as string) ?? null,
         category: (obj.category as string) ?? '',
         model: (obj.model as string) ?? '',
         input: (obj.input as string) ?? '',
@@ -82,7 +84,7 @@ export async function runIngestEval(
   try {
     await local.query(insertRunQuery, [runId, meta.workspace, meta.date, meta.date, 'eval', cases.length]);
     for (const c of cases) {
-      const messageId = `case-${c.index}`;
+      const messageId = c.id || `case-${c.index}`; // prefer the CSV id (LOOK-01) so results trace back
       await local.query(insertEvalTurnQuery, [
         runId, messageId, c.category || 'eval', meta.date, c.input, c.output,
         c.tool_calls == null ? null : JSON.stringify(c.tool_calls),

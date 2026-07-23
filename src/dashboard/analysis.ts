@@ -11,7 +11,26 @@ export interface AnalysisModel {
   byCategory: Array<{ label: string; value: number }>;
   bySignal: Array<{ label: string; value: number }>;
   byTool: Array<{ label: string; value: number }>;
-  brokenTurns: Array<{ message_id: string; user_query: string; answer_text: string; category: string; rationale: string }>;
+  turns: TurnDetail[];
+}
+
+export interface TurnDetail {
+  message_id: string;
+  user_query: string;
+  answer_text: string;
+  workspace_memory: string;
+  conversation_memory: string;
+  tool_trace: unknown; // jsonb → array | null
+  downvoted: boolean;
+  signal_no_tool_call: boolean;
+  signal_tool_error: boolean;
+  signal_empty_or_refusal: boolean;
+  signal_no_response: boolean;
+  signal_latency_outlier: boolean;
+  verdict: string; // '(unjudged)' when no verdict row
+  category: string;
+  severity: string;
+  rationale: string;
 }
 
 const VERDICT_COLORS: Record<string, string> = { good: '#2e7d32', 'needs-work': '#f9a825', broken: '#c62828' };
@@ -38,10 +57,21 @@ export async function loadAnalysis(local: LocalDb, runId: string): Promise<Analy
     `SELECT c->>'toolName' label, count(*)::int value
      FROM turns t, jsonb_array_elements(COALESCE(t.tool_trace,'[]'::jsonb)) c
      WHERE t.run_id=$1 GROUP BY 1 ORDER BY value DESC`, [runId])).rows;
-  const brokenTurns = (await local.query(
-    `SELECT t.message_id, t.user_query, t.answer_text, v.category, v.rationale
-     FROM turns t JOIN verdicts v USING (run_id, message_id)
-     WHERE t.run_id=$1 AND v.verdict='broken' ORDER BY t.created_at`, [runId])).rows;
+  // ALL turns (not just broken), each with its verdict; broken first, then needs-work, good, unjudged.
+  const turns = (await local.query<TurnDetail>(
+    `SELECT t.message_id, t.user_query, t.answer_text,
+            COALESCE(t.workspace_memory,'') workspace_memory,
+            COALESCE(t.conversation_memory,'') conversation_memory,
+            t.tool_trace, t.downvoted,
+            t.signal_no_tool_call, t.signal_tool_error, t.signal_empty_or_refusal,
+            t.signal_no_response, t.signal_latency_outlier,
+            COALESCE(v.verdict,'(unjudged)') verdict, COALESCE(v.category,'') category,
+            COALESCE(v.severity,'') severity, COALESCE(v.rationale,'') rationale
+     FROM turns t LEFT JOIN verdicts v USING (run_id, message_id)
+     WHERE t.run_id=$1
+     ORDER BY CASE COALESCE(v.verdict,'')
+                WHEN 'broken' THEN 0 WHEN 'needs-work' THEN 1 WHEN 'good' THEN 2 ELSE 3 END,
+              t.created_at`, [runId])).rows;
 
   return {
     runId, workspace: run.workspace ?? '', fromDate: String(run.from_date ?? ''), toDate: String(run.to_date ?? ''),
@@ -49,6 +79,6 @@ export async function loadAnalysis(local: LocalDb, runId: string): Promise<Analy
     verdictSplit: verdictRows.map(r => ({ label: r.verdict, value: Number(r.c), color: VERDICT_COLORS[r.verdict] ?? '#607d8b' })),
     byCategory: byCategory.map(r => ({ label: r.label, value: Number(r.value) })),
     bySignal, byTool: byTool.map(r => ({ label: r.label ?? '(none)', value: Number(r.value) })),
-    brokenTurns,
+    turns,
   };
 }

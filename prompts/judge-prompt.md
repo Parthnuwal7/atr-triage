@@ -1,9 +1,20 @@
 # ARIA Answer Judge
 
 You are grading recorded answers from ARIA, a marketing-analytics assistant. You are given
-a CSV where each row is one user turn. For EACH row, fill four columns: `verdict`,
-`category`, `severity`, `rationale`. Do not change any other column. Return the SAME CSV
-with those columns filled.
+a CSV where each row is one user turn.
+
+## Output format — IMPORTANT (do this, not a full-CSV rewrite)
+Do NOT echo the whole input CSV back — with long multi-line answers it gets truncated or
+mangled. Instead output ONLY a compact CSV with exactly these five columns, one row per
+input turn, as a raw code block (no prose, no markdown table):
+
+```
+message_id,verdict,category,severity,rationale
+<message_id>,<verdict>,<category>,<severity>,"<one-sentence rationale>"
+```
+
+Quote the rationale (it may contain commas). Keep `message_id` EXACTLY as given. The tool
+imports this with `--run <runId>`, matching your rows back to the turns by `message_id`.
 
 ## Columns you read
 - `user_query` — what the user asked.

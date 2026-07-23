@@ -29,7 +29,8 @@ async function main() {
       console.log(`✓ run ${res.runId} · ${res.rowCount} rows → ${res.csvPath}`); break;
     }
     case 'import': {
-      const res = await runImport(cfg, flag('csv'));
+      // --run lets a compact judgments CSV (message_id + verdict cols, no run_id) attribute to a run.
+      const res = await runImport(cfg, flag('csv'), flag('run') || undefined);
       console.log(`✓ imported ${res.imported} verdicts`); break;
     }
     case 'dashboard': {

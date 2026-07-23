@@ -20,9 +20,15 @@ function signalList(t: TurnDetail): string {
   return on.length ? on.join(', ') : 'none';
 }
 
+// Bars, or an explanatory note when there's nothing to chart (so the section isn't blank).
+function barsOrNote(items: Array<{ label: string; value: number }>, note: string, color?: string): string {
+  return items.length ? renderBars(items, color) : `<div class="note">${note}</div>`;
+}
+
 function detailBlock(t: TurnDetail): string {
   const trace = t.tool_trace == null ? '' : (typeof t.tool_trace === 'string' ? t.tool_trace : JSON.stringify(t.tool_trace, null, 2));
   const parts = [
+    `<div class="d note">message_id: <code>${esc(t.message_id)}</code> — curate with: <code>pnpm triage golden add --run &lt;runId&gt; --message ${esc(t.message_id)}</code></div>`,
     `<div class="d"><b>Answer</b><pre>${esc(t.answer_text)}</pre></div>`,
     t.rationale ? `<div class="d"><b>Judge</b> — ${esc(t.category)} / ${esc(t.severity)}<div class="rat">${esc(t.rationale)}</div></div>` : '',
     t.workspace_memory ? `<div class="d"><b>Workspace memory</b> <span class="mn">(current, not point-in-time)</span><pre>${esc(t.workspace_memory)}</pre></div>` : '',
@@ -91,8 +97,8 @@ export function renderDashboardHtml(m: AnalysisModel): string {
    <div><h2>Failure categories</h2>${renderBars(m.byCategory)}</div>
  </div>
  <div class="cards">
-   <div><h2>Signals</h2>${renderBars(m.bySignal, '#6a1b9a')}</div>
-   <div><h2>Tools involved</h2>${renderBars(m.byTool, '#00695c')}</div>
+   <div><h2>Signals</h2>${barsOrNote(m.bySignal, 'No deterministic signals fired (no downvotes, refusals, errors, or latency outliers).', '#6a1b9a')}</div>
+   <div><h2>Tools involved</h2>${barsOrNote(m.byTool, 'No tool traces — these are historical turns; tool traces are recorded for new turns only (patch C).', '#00695c')}</div>
  </div>
  <h2>Turns</h2>
  <div class="chips">${chips(m)}</div>

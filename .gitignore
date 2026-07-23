@@ -6,3 +6,4 @@ reports/
 dashboards/
 pgdata/
 localdb/
+golden-benchmark.json

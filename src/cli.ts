@@ -4,7 +4,7 @@ import { runMigrations } from './migrate.js';
 import { runExtract } from './extract/extractCommand.js';
 import { runImport } from './importJudged/importCommand.js';
 import { runDashboard } from './dashboard/dashboardCommand.js';
-import { runGoldenAdd, runGoldenExport } from './golden/goldenCommand.js';
+import { runGoldenAdd, runGoldenExport, runGoldenList } from './golden/goldenCommand.js';
 
 function flag(name: string, def = ''): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -39,9 +39,24 @@ async function main() {
     }
     case 'golden': {
       const sub = process.argv[3];
-      if (sub === 'add') { await runGoldenAdd(cfg, { runId: flag('run'), messageId: flag('message') }); console.log('✓ added'); }
-      else if (sub === 'export') { const r = await runGoldenExport(cfg, flag('out')); console.log(`✓ exported ${r.count} → ${flag('out')}`); }
-      else console.error('usage: golden add|export'); break;
+      if (sub === 'add') {
+        // golden add --run X --message Y   (single turn)
+        // golden add --run X --verdict broken   (all turns with that verdict; default broken)
+        const r = await runGoldenAdd(cfg, {
+          runId: flag('run'),
+          messageId: flag('message') || undefined,
+          verdict: flag('verdict') || undefined,
+        });
+        console.log(`✓ added ${r.added} to golden set`);
+      } else if (sub === 'list') {
+        const rows = await runGoldenList(cfg);
+        console.log(`golden set: ${rows.length} queries`);
+        for (const r of rows) console.log(`  #${r.id} [${r.category || '—'}] ${r.query.slice(0, 90)}`);
+      } else if (sub === 'export') {
+        const r = await runGoldenExport(cfg, flag('out'));
+        console.log(`✓ exported ${r.count} → ${flag('out')}`);
+      } else console.error('usage: golden add|list|export');
+      break;
     }
     default:
       console.error('usage: atr-triage migrate|extract|import|dashboard|golden');

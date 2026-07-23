@@ -1,5 +1,29 @@
-import type { AnalysisModel, TurnDetail } from './analysis.js';
+import type { AnalysisModel, TurnDetail, EvalMetrics } from './analysis.js';
 import { renderDonut, renderBars } from './svg.js';
+
+function evalSection(m: EvalMetrics): string {
+  const pct = m.toolTotal ? Math.round((100 * m.toolCorrect) / m.toolTotal) : null;
+  const stat = (label: string, val: string) => `<div class="stat"><div class="sv">${val}</div><div class="sl">${label}</div></div>`;
+  const cards = [
+    stat('Tool-call correct', pct == null ? '—' : `${pct}% <span class="mn">(${m.toolCorrect}/${m.toolTotal})</span>`),
+    stat('Avg auto-accuracy', m.avgAccuracy == null ? '—' : `${m.avgAccuracy}/100`),
+    stat('Avg tokens', m.avgTokens == null ? '—' : String(m.avgTokens)),
+    stat('Total cost', m.totalCost == null ? '—' : `$${m.totalCost.toFixed(4)}`),
+    stat('Avg steps', m.avgSteps == null ? '—' : String(m.avgSteps)),
+    stat('Avg latency', m.avgLatencyMs == null ? '—' : `${(m.avgLatencyMs / 1000).toFixed(1)}s`),
+  ].join('');
+  const rows = m.byCategory.map(c => {
+    const bad = c.total ? Math.round((100 * (c.broken + c.needsWork)) / c.total) : 0;
+    return `<tr><td>${esc(c.category)}</td><td>${c.total}</td><td class="v-broken-t">${c.broken}</td>` +
+      `<td class="v-needs-t">${c.needsWork}</td><td class="v-good-t">${c.good}</td>` +
+      `<td>${c.avgAccuracy == null ? '—' : c.avgAccuracy}</td><td>${bad}%</td></tr>`;
+  }).join('');
+  return `<h2>Benchmark metrics</h2>
+    <div class="stats">${cards}</div>
+    <h2>Where it performs well vs. poorly (by category)</h2>
+    <table><thead><tr><th>Category</th><th>Total</th><th>Broken</th><th>Needs-work</th><th>Good</th><th>Avg acc</th><th>% not-good</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
 
 function esc(s: unknown): string {
   return String(s ?? '').replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]!));
@@ -27,8 +51,14 @@ function barsOrNote(items: Array<{ label: string; value: number }>, note: string
 
 function detailBlock(t: TurnDetail): string {
   const trace = t.tool_trace == null ? '' : (typeof t.tool_trace === 'string' ? t.tool_trace : JSON.stringify(t.tool_trace, null, 2));
+  const evalLine = t.expected_tool != null || t.tokens_total != null
+    ? `<div class="d note">expected tool: <b>${esc(t.expected_tool ?? '—')}</b> · called: <b>${esc(t.tool_called ?? '—')}</b>` +
+      ` · steps ${t.steps ?? '—'} · tokens ${t.tokens_total ?? '—'} · cost ${t.cost_usd == null ? '—' : '$' + t.cost_usd}` +
+      ` · ${t.total_time_ms == null ? '—' : (t.total_time_ms / 1000).toFixed(1) + 's'} · auto-acc ${t.accuracy_score ?? '—'}</div>`
+    : '';
   const parts = [
     `<div class="d note">message_id: <code>${esc(t.message_id)}</code> — curate with: <code>pnpm triage golden add --run &lt;runId&gt; --message ${esc(t.message_id)}</code></div>`,
+    evalLine,
     `<div class="d"><b>Answer</b><pre>${esc(t.answer_text)}</pre></div>`,
     t.rationale ? `<div class="d"><b>Judge</b> — ${esc(t.category)} / ${esc(t.severity)}<div class="rat">${esc(t.rationale)}</div></div>` : '',
     t.workspace_memory ? `<div class="d"><b>Workspace memory</b> <span class="mn">(current, not point-in-time)</span><pre>${esc(t.workspace_memory)}</pre></div>` : '',
@@ -88,6 +118,11 @@ export function renderDashboardHtml(m: AnalysisModel): string {
  .badge.v-needs-work{color:#222}
  td .d{margin:6px 0} td .d b{font-size:12px} td pre{white-space:pre-wrap;background:#f7f7f7;padding:8px;border-radius:4px;margin:4px 0;max-height:340px;overflow:auto}
  td .rat{margin-top:2px}
+ .stats{display:flex;gap:16px;flex-wrap:wrap;margin:8px 0}
+ .stat{border:1px solid #e0e0e0;border-radius:8px;padding:10px 16px;min-width:120px}
+ .stat .sv{font-size:18px;font-weight:600} .stat .sl{font-size:11px;color:#666;margin-top:2px}
+ .v-broken-t{color:#c62828;font-weight:600} .v-needs-t{color:#b26a00} .v-good-t{color:#2e7d32}
+ code{background:#f0f0f0;padding:1px 4px;border-radius:3px;font-size:11px}
 </style></head><body>
  <h1>ARIA Triage — ${esc(m.workspace)}</h1>
  <div class="note">Window ${esc(m.fromDate)} → ${esc(m.toDate)} · ${m.total} turns · ${m.downvotes} downvoted · run ${esc(m.runId)}</div>
@@ -100,6 +135,7 @@ export function renderDashboardHtml(m: AnalysisModel): string {
    <div><h2>Signals</h2>${barsOrNote(m.bySignal, 'No deterministic signals fired (no downvotes, refusals, errors, or latency outliers).', '#6a1b9a')}</div>
    <div><h2>Tools involved</h2>${barsOrNote(m.byTool, 'No tool traces — these are historical turns; tool traces are recorded for new turns only (patch C).', '#00695c')}</div>
  </div>
+ ${m.evalMetrics ? evalSection(m.evalMetrics) : ''}
  <h2>Turns</h2>
  <div class="chips">${chips(m)}</div>
  <table><thead><tr><th>Verdict</th><th>Category</th><th>Severity</th><th>Query (click row for full detail)</th></tr></thead>

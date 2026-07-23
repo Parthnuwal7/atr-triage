@@ -13,6 +13,15 @@ export const insertTurnQuery = `
   ON CONFLICT (run_id, message_id) DO NOTHING
 `;
 
+export const insertEvalTurnQuery = `
+  INSERT INTO turns (
+    run_id, message_id, chat_id, created_at, user_query, answer_text, tool_trace,
+    category, expected_tool, tool_called, tokens_total, tokens_in, tokens_out,
+    cost_usd, steps, total_time_ms, accuracy_score, overall_score
+  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+  ON CONFLICT (run_id, message_id) DO NOTHING
+`;
+
 export const insertVerdictQuery = `
   INSERT INTO verdicts (run_id, message_id, verdict, category, severity, rationale)
   VALUES ($1, $2, $3, $4, $5, $6)

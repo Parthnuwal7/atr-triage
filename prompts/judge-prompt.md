@@ -36,6 +36,13 @@ imports this with `--run <runId>`, matching your rows back to the turns by `mess
 or asked needlessly) · `tool-error` (tool failed) · `empty-result` (tool returned nothing
 but answer implies data) · `formatting` · `other`.
 
+## Benchmark runs (columns `expected_tool` / `tool_called` present)
+When the row has `expected_tool`, this is a benchmark case run live:
+- **Wrong tool**: `tool_called` differs from `expected_tool` (and no valid alias) → lean `broken`/`wrong-data`.
+- **Hallucination check**: compare `answer_text` against `tool_trace`. If the answer states specific
+  numbers/entities but the trace shows `rowCount: 0`, an error `kind`, or no relevant tool call →
+  `hallucination`. If the trace supports the answer, it's likely `good`.
+
 ## Rules
 - A refusal CAN be correct (out of scope, genuinely no data). Only mark `wrong-refusal`
   when the request was answerable.

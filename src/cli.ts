@@ -5,6 +5,8 @@ import { runExtract } from './extract/extractCommand.js';
 import { runImport } from './importJudged/importCommand.js';
 import { runDashboard } from './dashboard/dashboardCommand.js';
 import { runGoldenAdd, runGoldenExport, runGoldenList } from './golden/goldenCommand.js';
+import { runIngestEval } from './ingestEval/ingestCommand.js';
+import { runJudgeCsv } from './judgeCsv/judgeCsvCommand.js';
 
 function flag(name: string, def = ''): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -33,6 +35,14 @@ async function main() {
       const res = await runImport(cfg, flag('csv'), flag('run') || undefined);
       console.log(`✓ imported ${res.imported} verdicts`); break;
     }
+    case 'ingest-eval': {
+      const res = await runIngestEval(cfg, flag('jsonl'));
+      console.log(`✓ ingested ${res.ingested} eval cases · run ${res.runId}`); break;
+    }
+    case 'judge-csv': {
+      const res = await runJudgeCsv(cfg, flag('run'), flag('out'));
+      console.log(`✓ wrote ${res.rows} rows → ${flag('out')} (judge with prompts/judge-prompt.md → import --run ${flag('run')})`); break;
+    }
     case 'dashboard': {
       const res = await runDashboard(cfg, flag('run'), flag('name') || undefined);
       console.log(`✓ dashboard → ${res.htmlPath}`); break;
@@ -59,7 +69,7 @@ async function main() {
       break;
     }
     default:
-      console.error('usage: atr-triage migrate|extract|import|dashboard|golden');
+      console.error('usage: atr-triage migrate|extract|ingest-eval|judge-csv|import|dashboard|golden');
       process.exit(1);
   }
 }

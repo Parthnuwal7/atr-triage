@@ -7,6 +7,7 @@ import { runDashboard } from './dashboard/dashboardCommand.js';
 import { runGoldenAdd, runGoldenExport, runGoldenList } from './golden/goldenCommand.js';
 import { runIngestEval } from './ingestEval/ingestCommand.js';
 import { runJudgeCsv } from './judgeCsv/judgeCsvCommand.js';
+import { runAssert } from './triage/assertCommand.js';
 
 function flag(name: string, def = ''): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -43,8 +44,21 @@ async function main() {
       const res = await runJudgeCsv(cfg, flag('run'), flag('out'));
       console.log(`✓ wrote ${res.rows} rows → ${flag('out')} (judge with prompts/judge-prompt.md → import --run ${flag('run')})`); break;
     }
+    case 'assert': {
+      // Deterministic gate: rig-integrity + assertion checks over a run's turns.
+      // --expectations <file> supplies per-case scope/entity/permission expectations.
+      const res = await runAssert(cfg, flag('run'), flag('expectations') || undefined);
+      const badge = res.gate === 'red' ? '🔴 RED' : '🟢 GREEN';
+      const classes = Object.entries(res.byClass).map(([c, n]) => `${c}:${n}`).join(' ');
+      console.log(`${badge} · ${res.findings} findings (${res.blocking} blocking) · run ${flag('run')}`);
+      if (classes) console.log(`  by class: ${classes}`);
+      if (res.gate === 'red') process.exitCode = 1; // gate fails the process for CI
+      break;
+    }
     case 'dashboard': {
-      const res = await runDashboard(cfg, flag('run'), flag('name') || undefined);
+      // --compare <runB> renders an A/B comparison (baseline --run vs candidate --compare);
+      // without it, the single-run dashboard is unchanged.
+      const res = await runDashboard(cfg, flag('run'), flag('name') || undefined, flag('compare') || undefined);
       console.log(`✓ dashboard → ${res.htmlPath}`); break;
     }
     case 'golden': {
@@ -69,7 +83,7 @@ async function main() {
       break;
     }
     default:
-      console.error('usage: atr-triage migrate|extract|ingest-eval|judge-csv|import|dashboard|golden');
+      console.error('usage: atr-triage migrate|extract|ingest-eval|judge-csv|import|assert|dashboard|golden');
       process.exit(1);
   }
 }

@@ -22,6 +22,25 @@ export const insertEvalTurnQuery = `
   ON CONFLICT (run_id, message_id) DO NOTHING
 `;
 
+export const selectTurnsForAssertQuery = `
+  SELECT message_id, answer_text AS output, tool_trace AS tool_calls,
+         total_time_ms, ttfb_ms, tool_called
+  FROM turns
+  WHERE run_id = $1
+  ORDER BY message_id
+`;
+
+export const clearFindingsForRunQuery = `DELETE FROM findings WHERE run_id = $1`;
+
+export const insertFindingQuery = `
+  INSERT INTO findings (run_id, message_id, class, layer, detector, fix_type, severity, blocking, message, evidence)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+`;
+
+export const updateTurnRigQuery = `
+  UPDATE turns SET rig_status = $3, rig_reason = $4 WHERE run_id = $1 AND message_id = $2
+`;
+
 export const insertVerdictQuery = `
   INSERT INTO verdicts (run_id, message_id, verdict, category, severity, rationale)
   VALUES ($1, $2, $3, $4, $5, $6)

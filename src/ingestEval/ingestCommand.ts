@@ -7,6 +7,7 @@ import { insertRunQuery, insertEvalTurnQuery } from '../sql/localQueries.js';
 export interface EvalCaseRow {
   index: number;
   id: string | null; // benchmark CSV id (e.g. LOOK-01) when present
+  scenario_tag: string | null; // stable fixture tag (e.g. LOOK-01); id is usually null, this isn't
   category: string;
   model: string;
   input: string;
@@ -22,6 +23,7 @@ export interface EvalCaseRow {
   total_time_ms: number | null;
   accuracy_score: number | null;
   overall_score: number | null;
+  trace: unknown; // per-turn TurnTrace (Plan 2) when the backend emitted it, else null
 }
 
 export interface EvalMeta {
@@ -53,6 +55,7 @@ export function parseEvalJsonl(text: string): { meta: EvalMeta; cases: EvalCaseR
       cases.push({
         index: Number(obj.index),
         id: (obj.id as string) ?? null,
+        scenario_tag: (obj.scenario_tag as string) ?? null,
         category: (obj.category as string) ?? '',
         model: (obj.model as string) ?? '',
         input: (obj.input as string) ?? '',
@@ -68,6 +71,7 @@ export function parseEvalJsonl(text: string): { meta: EvalMeta; cases: EvalCaseR
         total_time_ms: obj.total_time_ms == null ? null : Number(obj.total_time_ms),
         accuracy_score: obj.accuracy_score == null ? null : Number(obj.accuracy_score),
         overall_score: obj.overall_score == null ? null : Number(obj.overall_score),
+        trace: obj.trace ?? null,
       });
     }
   }
@@ -84,12 +88,16 @@ export async function runIngestEval(
   try {
     await local.query(insertRunQuery, [runId, meta.workspace, meta.date, meta.date, 'eval', cases.length]);
     for (const c of cases) {
-      const messageId = c.id || `case-${c.index}`; // prefer the CSV id (LOOK-01) so results trace back
+      // Prefer the human-traceable fixture id (LOOK-01) so results trace back AND so two
+      // arms (harness vs no-harness) share stable message_ids for the A/B comparison join.
+      // The JSONL emits id:null but always carries scenario_tag, so fall through to it.
+      const messageId = c.id ?? c.scenario_tag ?? `case-${c.index}`;
       await local.query(insertEvalTurnQuery, [
         runId, messageId, c.category || 'eval', meta.date, c.input, c.output,
         c.tool_calls == null ? null : JSON.stringify(c.tool_calls),
         c.category, c.expected_tool, c.tool_called, c.tokens_total, c.tokens_in, c.tokens_out,
         c.cost_usd, c.steps, c.total_time_ms, c.accuracy_score, c.overall_score,
+        c.trace == null ? null : JSON.stringify(c.trace),
       ]);
     }
     return { runId, ingested: cases.length };

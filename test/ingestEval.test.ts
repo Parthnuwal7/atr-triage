@@ -9,6 +9,7 @@ const jsonl = [
     all_tools_called: ['queryDatabase'], tool_calls: [{ name: 'queryDatabase', args: { metric: 'roas' }, kind: 'success', errorCode: null, rowCount: 5 }],
     steps: 1, tokens_total: 1200, tokens_in: 1000, tokens_out: 200, cost_usd: 0.004,
     total_time_ms: 3200, accuracy_score: 100, overall_score: 92,
+    trace: { queriedWorkspace: 'ws-1', tools: [] },
   }),
   JSON.stringify({
     kind: 'case', index: 2, category: 'Navigation', model: 'gpt-oss-120b',
@@ -32,10 +33,24 @@ describe('parseEvalJsonl', () => {
       tokens_total: 1200, cost_usd: 0.004, steps: 1, accuracy_score: 100,
     });
     expect(cases[1].tokens_total).toBeNull();
+    expect(cases[0].trace).toMatchObject({ queriedWorkspace: 'ws-1' });
+    expect(cases[1].trace).toBeNull();
   });
 
   it('ignores run_start/run_end and malformed lines', () => {
     const noisy = jsonl + '\nnot json\n' + JSON.stringify({ kind: 'other' });
     expect(parseEvalJsonl(noisy).cases).toHaveLength(2);
+  });
+
+  it('carries scenario_tag so a null id can still resolve a traceable message id', () => {
+    // Real runs emit id:null but always set scenario_tag (e.g. LOOK-01). The ingest
+    // messageId falls id ?? scenario_tag ?? case-<index>, keeping ids joinable across arms.
+    const line = JSON.stringify({
+      kind: 'case', index: 7, id: null, scenario_tag: 'NAV-03', category: 'Navigation',
+      model: 'm', input: 'q', output: 'a', tokens_total: 10, tokens_in: 8, tokens_out: 2,
+    });
+    const { cases } = parseEvalJsonl(line);
+    expect(cases[0].id).toBeNull();
+    expect(cases[0].scenario_tag).toBe('NAV-03');
   });
 });

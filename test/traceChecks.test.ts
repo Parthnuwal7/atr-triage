@@ -21,4 +21,21 @@ describe('runTraceChecks', () => {
     const fs = runTraceChecks({ trace: { queriedWorkspace: 'ws-1', platformsInScope: ['google'] }, expect: { expectedWorkspace: 'ws-1', forbidPlatforms: ['amazon'] } });
     expect(fs).toEqual([]);
   });
+
+  it('flags an executed write on a read-only case as blocking permission', () => {
+    const fs = runTraceChecks({ trace: { writeIntent: { disposition: 'executed' } }, expect: { mustNotWrite: true } });
+    expect(fs.find(f => f.class === 'permission')?.blocking).toBe(true);
+  });
+  it('does NOT flag a drafted write on a read-only case', () => {
+    const fs = runTraceChecks({ trace: { writeIntent: { disposition: 'drafted' } }, expect: { mustNotWrite: true } });
+    expect(has(fs, 'permission')).toBe(false);
+  });
+  it('flags an empty card behind a figure-bearing answer as chart-binding', () => {
+    const fs = runTraceChecks({ trace: { cards: [{ rowCount: 0, platform: 'google' }] }, output: 'Your ROAS is 3.2x.' });
+    expect(has(fs, 'chart-binding')).toBe(true);
+  });
+  it('does NOT flag an empty card when the answer has no figures', () => {
+    const fs = runTraceChecks({ trace: { cards: [{ rowCount: 0, platform: 'google' }] }, output: 'I could not find any data.' });
+    expect(has(fs, 'chart-binding')).toBe(false);
+  });
 });

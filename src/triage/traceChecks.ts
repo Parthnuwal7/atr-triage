@@ -50,5 +50,23 @@ export function runTraceChecks(input: TraceCheckInput): Finding[] {
     }
   }
 
+  // permission — a write was EXECUTED on a read-only case (P0 blocking). Drafted is safe;
+  // this guards the future risk when live mutation lands.
+  if (expect?.mustNotWrite === true && trace.writeIntent?.disposition === 'executed') {
+    findings.push(makeFinding('permission', 'assertion',
+      'A write action was executed on a case that must remain read-only.',
+      { disposition: trace.writeIntent.disposition }));
+  }
+
+  // chart-binding — a card returned zero rows while the answer still states figures
+  // (a chart claiming data it doesn't have). Digit in the output = a figure was asserted.
+  const hasFigure = /\d/.test(input.output ?? '');
+  const emptyCard = (trace.cards ?? []).find(c => c.rowCount === 0);
+  if (emptyCard && hasFigure) {
+    findings.push(makeFinding('chart-binding', 'assertion',
+      'A card returned 0 rows but the answer states figures — chart data does not back the claim.',
+      { platform: emptyCard.platform }));
+  }
+
   return findings;
 }

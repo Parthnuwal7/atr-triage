@@ -4,6 +4,8 @@ export interface CaseExpectation {
   entity?: string;
   entityExists?: boolean;
   mustNotWrite?: boolean;
+  /** The workspace this turn must have queried (cross-tenant assertion, needs the trace). */
+  expectedWorkspace?: string;
 }
 
 export type ExpectationMap = Record<string, CaseExpectation>;

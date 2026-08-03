@@ -24,7 +24,7 @@ export const insertEvalTurnQuery = `
 
 export const selectTurnsForAssertQuery = `
   SELECT message_id, answer_text AS output, tool_trace AS tool_calls,
-         total_time_ms, ttfb_ms, tool_called
+         total_time_ms, ttfb_ms, tool_called, trace
   FROM turns
   WHERE run_id = $1
   ORDER BY message_id

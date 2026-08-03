@@ -3,6 +3,7 @@ import { runDeterministicChecks } from './checks.js';
 import type { CaseExpectation } from './expectations.js';
 import { classifyRig, type RigVerdict } from './rigIntegrity.js';
 import { makeFinding, type Finding } from './taxonomy.js';
+import { runTraceChecks, type TraceLike } from './traceChecks.js';
 
 export interface AssessInput {
   output: string;
@@ -12,6 +13,8 @@ export interface AssessInput {
   all_tools_called?: string[];
   tool_calls?: ToolCallLite[];
   expect?: CaseExpectation;
+  /** Per-turn trace (Plan 2) — enables cross-tenant/permission/chart-binding checks. */
+  trace?: TraceLike | null;
 }
 
 export interface TurnAssessment {
@@ -32,5 +35,9 @@ export function assessTurn(input: AssessInput): TurnAssessment {
     tool_calls: input.tool_calls,
     expect: input.expect,
   });
+  // Trace-backed checks (Plan 2) run only when a trace was captured for this turn.
+  if (input.trace) {
+    findings.push(...runTraceChecks({ trace: input.trace, expect: input.expect, output: input.output }));
+  }
   return { rig, findings, blocking: findings.some(f => f.blocking) };
 }

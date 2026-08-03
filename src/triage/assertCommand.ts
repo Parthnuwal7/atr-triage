@@ -7,6 +7,7 @@ import {
 import { assessTurn, type TurnAssessment } from './assess.js';
 import { expectationFor, parseExpectations, type ExpectationMap } from './expectations.js';
 import type { ToolCallLite } from './checks.js';
+import type { TraceLike } from './traceChecks.js';
 
 export interface TurnRecord {
   message_id: string;
@@ -15,12 +16,21 @@ export interface TurnRecord {
   total_time_ms: number | null;
   ttfb_ms: number | null;
   tool_called: string | null;
+  trace?: unknown;
 }
 
 function toToolCalls(raw: unknown): ToolCallLite[] {
   if (Array.isArray(raw)) return raw as ToolCallLite[];
   if (typeof raw === 'string') { try { const p = JSON.parse(raw); return Array.isArray(p) ? p : []; } catch { return []; } }
   return [];
+}
+
+/** Trace comes back from JSONB as an object (PGlite) or a string — normalize to an object. */
+function toTrace(raw: unknown): TraceLike | null {
+  if (!raw) return null;
+  if (typeof raw === 'string') { try { return JSON.parse(raw) as TraceLike; } catch { return null; } }
+  if (typeof raw === 'object') return raw as TraceLike;
+  return null;
 }
 
 /** Pure: assess every turn and roll up the gate + class histogram. */
@@ -38,6 +48,7 @@ export function buildRunReport(turns: TurnRecord[], expectations: ExpectationMap
       total_time_ms: t.total_time_ms,
       tool_called: t.tool_called,
       tool_calls: toToolCalls(t.tool_calls),
+      trace: toTrace(t.trace),
       expect: expectationFor(expectations, t.message_id),
     }),
   }));

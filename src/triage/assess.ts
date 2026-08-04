@@ -15,6 +15,8 @@ export interface AssessInput {
   expect?: CaseExpectation;
   /** Per-turn trace (Plan 2) — enables cross-tenant/permission/chart-binding checks. */
   trace?: TraceLike | null;
+  /** True when ARIA asked a clarifying question (drives the over-clarify check). */
+  clarified?: boolean;
 }
 
 export interface TurnAssessment {
@@ -34,6 +36,7 @@ export function assessTurn(input: AssessInput): TurnAssessment {
     output: input.output,
     tool_calls: input.tool_calls,
     expect: input.expect,
+    clarified: input.clarified,
   });
   // Trace-backed checks (Plan 2) run only when a trace was captured for this turn.
   if (input.trace) {

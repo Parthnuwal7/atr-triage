@@ -17,14 +17,14 @@ export const insertEvalTurnQuery = `
   INSERT INTO turns (
     run_id, message_id, chat_id, created_at, user_query, answer_text, tool_trace,
     category, expected_tool, tool_called, tokens_total, tokens_in, tokens_out,
-    cost_usd, steps, total_time_ms, accuracy_score, overall_score, trace
-  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+    cost_usd, steps, total_time_ms, accuracy_score, overall_score, trace, clarified, clarify_rounds
+  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
   ON CONFLICT (run_id, message_id) DO NOTHING
 `;
 
 export const selectTurnsForAssertQuery = `
   SELECT message_id, answer_text AS output, tool_trace AS tool_calls,
-         total_time_ms, ttfb_ms, tool_called, trace
+         total_time_ms, ttfb_ms, tool_called, trace, clarified
   FROM turns
   WHERE run_id = $1
   ORDER BY message_id

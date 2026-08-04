@@ -11,6 +11,8 @@ export interface CheckInput {
   output: string;
   tool_calls?: ToolCallLite[];
   expect?: CaseExpectation;
+  /** True when ARIA asked a clarifying question on this turn (from run-eval `clarified`). */
+  clarified?: boolean;
 }
 
 /** Canonical platform token → the surface aliases that would appear in an answer. */
@@ -58,6 +60,15 @@ export function runDeterministicChecks(input: CheckInput): Finding[] {
         `Out-of-scope platform "${plat}" appeared in a ${expect?.scopePlatform ?? 'scoped'} answer.`,
         { platform: plat, scope: expect?.scopePlatform ?? null }));
     }
+  }
+
+  // over-clarify — the query named a platform (expect.scopePlatform) yet ARIA still asked a
+  // clarifying question instead of answering (e.g. "Google spend?" → "Which Google?"). A router
+  // over-clarification: it should have proceeded on the specified scope.
+  if (input.clarified && expect?.scopePlatform) {
+    findings.push(makeFinding('over-clarify', 'assertion',
+      `Query specified platform "${expect.scopePlatform}" but ARIA asked to clarify instead of answering.`,
+      { scopePlatform: expect.scopePlatform }));
   }
 
   // entity-not-found — a named entity that does not exist was presented as real.

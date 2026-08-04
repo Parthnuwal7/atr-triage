@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { renderDashboardHtml } from '../src/dashboard/renderHtml.js';
-import type { AnalysisModel } from '../src/dashboard/analysis.js';
+import { renderDashboardHtml, renderComparisonHtml } from '../src/dashboard/renderHtml.js';
+import type { AnalysisModel, ComparisonModel } from '../src/dashboard/analysis.js';
 
 const turn = (over: Partial<AnalysisModel['turns'][number]> = {}): AnalysisModel['turns'][number] => ({
   message_id: 'a1', user_query: 'q1', answer_text: 'wrong', workspace_memory: '', conversation_memory: '',
@@ -56,5 +56,39 @@ describe('renderDashboardHtml', () => {
     expect(html).toContain('Tool-call correct');
     expect(html).toContain('80%'); // 8/10
     expect(html).toContain('Normal Lookup');
+  });
+});
+
+describe('renderComparisonHtml', () => {
+  const cmp: ComparisonModel = {
+    a: { runId: 'run-a', workspace: 'no-harness' },
+    b: { runId: 'run-b', workspace: 'harness' },
+    qualityRadar: [
+      { axis: 'Verdict pass %', a: 60, b: 75 },
+      { axis: 'Speed', a: 80, b: 100 },
+    ],
+    familyRadar: [{ axis: 'Lookup & Reporting', a: 50, b: 90 }],
+    kpis: [
+      { label: 'Pass %', a: 60, b: 75, delta: 15, betterIsB: true, fmt: 'pct' },
+      { label: 'Total cost', a: 2.28, b: 3.1, delta: 0.82, betterIsB: false, fmt: 'usd' },
+    ],
+    categoryDeltas: [
+      { category: 'Adversarial', a: 100, b: 40, delta: -60 },
+      { category: 'Normal Lookup', a: 50, b: 90, delta: 40 },
+    ],
+    verdictGroups: [{ label: 'pass', a: 6, b: 8, color: '#2e7d32' }],
+    notMeasured: ['Cost efficiency'],
+    relativeAxes: ['Speed', 'Cost efficiency', 'Step efficiency'],
+  };
+
+  it('is a self-contained A/B doc with both arms, deltas and captions', () => {
+    const html = renderComparisonHtml(cmp);
+    expect(html).toMatch(/<!doctype html>/i);
+    expect(html).not.toMatch(/https?:\/\//); // no external assets
+    expect(html).toContain('no-harness');
+    expect(html).toContain('harness');
+    expect(html).toContain('+15pp');       // improvement tile
+    expect(html).toContain('Adversarial'); // worst-regression category
+    expect(html).toContain('Not measured'); // zero-denominator caption
   });
 });

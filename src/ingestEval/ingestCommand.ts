@@ -24,6 +24,8 @@ export interface EvalCaseRow {
   accuracy_score: number | null;
   overall_score: number | null;
   trace: unknown; // per-turn TurnTrace (Plan 2) when the backend emitted it, else null
+  clarified: boolean; // ARIA asked a clarifying question this turn
+  clarify_rounds: number | null; // how many clarifications were auto-resolved
 }
 
 export interface EvalMeta {
@@ -72,6 +74,8 @@ export function parseEvalJsonl(text: string): { meta: EvalMeta; cases: EvalCaseR
         accuracy_score: obj.accuracy_score == null ? null : Number(obj.accuracy_score),
         overall_score: obj.overall_score == null ? null : Number(obj.overall_score),
         trace: obj.trace ?? null,
+        clarified: obj.clarified === true,
+        clarify_rounds: obj.clarify_rounds == null ? null : Number(obj.clarify_rounds),
       });
     }
   }
@@ -98,6 +102,7 @@ export async function runIngestEval(
         c.category, c.expected_tool, c.tool_called, c.tokens_total, c.tokens_in, c.tokens_out,
         c.cost_usd, c.steps, c.total_time_ms, c.accuracy_score, c.overall_score,
         c.trace == null ? null : JSON.stringify(c.trace),
+        c.clarified, c.clarify_rounds,
       ]);
     }
     return { runId, ingested: cases.length };

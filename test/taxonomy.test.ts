@@ -4,7 +4,7 @@ import { CLASS_META, isBlocking, makeFinding } from '../src/triage/taxonomy.js';
 const ALL_CLASSES = [
   'scope-leak','permission','cross-tenant','api-failure','entity-not-found',
   'chart-binding','empty-answer','hallucination','wrong-inference',
-  'dropped-followup','missed-clarify','wrong-language','rig-error',
+  'dropped-followup','missed-clarify','over-clarify','wrong-language','rig-error',
 ] as const;
 
 describe('taxonomy', () => {

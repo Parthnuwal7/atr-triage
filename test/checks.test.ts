@@ -45,6 +45,19 @@ describe('runDeterministicChecks', () => {
     });
     expect(has(fs, 'entity-not-found')).toBe(false);
   });
+  it('flags over-clarify when a platform was specified but ARIA still clarified', () => {
+    const fs = runDeterministicChecks({
+      output: 'Which Google account should I report on?',
+      clarified: true,
+      expect: { scopePlatform: 'google', forbidPlatforms: ['amazon'] },
+    });
+    expect(has(fs, 'over-clarify')).toBe(true);
+  });
+  it('does not flag over-clarify when no platform was specified', () => {
+    const fs = runDeterministicChecks({ output: 'Which platform should I report on?', clarified: true });
+    expect(has(fs, 'over-clarify')).toBe(false);
+  });
+
   it('returns no findings for a clean, in-scope answer', () => {
     expect(runDeterministicChecks({ output: 'Your Google ROAS last week was 1.8x across 6 campaigns.' })).toEqual([]);
   });

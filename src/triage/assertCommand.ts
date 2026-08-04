@@ -17,6 +17,7 @@ export interface TurnRecord {
   ttfb_ms: number | null;
   tool_called: string | null;
   trace?: unknown;
+  clarified?: boolean | null;
 }
 
 function toToolCalls(raw: unknown): ToolCallLite[] {
@@ -49,6 +50,7 @@ export function buildRunReport(turns: TurnRecord[], expectations: ExpectationMap
       tool_called: t.tool_called,
       tool_calls: toToolCalls(t.tool_calls),
       trace: toTrace(t.trace),
+      clarified: t.clarified === true,
       expect: expectationFor(expectations, t.message_id),
     }),
   }));

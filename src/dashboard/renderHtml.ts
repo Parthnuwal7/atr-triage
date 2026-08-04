@@ -1,5 +1,5 @@
-import type { AnalysisModel, TurnDetail, EvalMetrics } from './analysis.js';
-import { renderDonut, renderBars } from './svg.js';
+import type { AnalysisModel, TurnDetail, EvalMetrics, ComparisonModel } from './analysis.js';
+import { renderDonut, renderBars, renderRadar, renderDivergingBars, renderGroupedBars } from './svg.js';
 
 function evalSection(m: EvalMetrics): string {
   const pct = m.toolTotal ? Math.round((100 * m.toolCorrect) / m.toolTotal) : null;
@@ -93,6 +93,81 @@ function chips(m: AnalysisModel): string {
       return `<button class="chip${on}" data-filter="${esc(v)}">${esc(v)} <span class="n">${n}</span></button>`;
     })
     .join('');
+}
+
+// ─── A/B comparison page ─────────────────────────────────────────────────────
+
+function fmtKpi(v: number, fmt: 'pct' | 'ms' | 'usd' | 'int'): string {
+  if (fmt === 'pct') return `${v}%`;
+  if (fmt === 'ms') return `${(v / 1000).toFixed(1)}s`;
+  if (fmt === 'usd') return `$${v.toFixed(4)}`;
+  return String(v);
+}
+
+function kpiTiles(m: ComparisonModel): string {
+  return m.kpis
+    .map(k => {
+      const cls = k.delta === 0 ? 'flat' : k.betterIsB ? 'up' : 'down';
+      const sign = k.delta > 0 ? '+' : '';
+      const deltaStr = k.fmt === 'ms' ? `${sign}${(k.delta / 1000).toFixed(1)}s`
+        : k.fmt === 'usd' ? `${sign}$${k.delta.toFixed(4)}`
+        : k.fmt === 'pct' ? `${sign}${k.delta}pp`
+        : `${sign}${k.delta}`;
+      return `<div class="tile ${cls}"><div class="tl">${esc(k.label)}</div>` +
+        `<div class="tv">${fmtKpi(k.a, k.fmt)} <span class="ar">→</span> ${fmtKpi(k.b, k.fmt)}</div>` +
+        `<div class="td">${deltaStr}</div></div>`;
+    })
+    .join('');
+}
+
+export function renderComparisonHtml(m: ComparisonModel): string {
+  const aLabel = `A · ${esc(m.a.workspace)}`;
+  const bLabel = `B · ${esc(m.b.workspace)}`;
+  const catBars = m.categoryDeltas.map(c => ({ label: c.category, value: c.delta }));
+  const caption = [
+    m.relativeAxes.length
+      ? `Speed, Cost efficiency and Step efficiency are scaled <b>relative to the pair</b> (better arm = 100); they measure the gap between arms, not an absolute quality.`
+      : '',
+    m.notMeasured.length
+      ? `Not measured (zero denominator, shown as 0): <b>${m.notMeasured.map(esc).join(', ')}</b>.`
+      : '',
+  ].filter(Boolean).join(' ');
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><title>ARIA A/B — ${esc(m.a.workspace)} vs ${esc(m.b.workspace)}</title>
+<style>
+ body{font-family:system-ui,Arial,sans-serif;margin:24px;color:#222;max-width:1100px}
+ h1{font-size:20px} h2{font-size:15px;margin-top:28px}
+ .note{color:#666;font-size:12px;margin:4px 0}
+ .cards{display:flex;gap:32px;flex-wrap:wrap;align-items:flex-start}
+ .tiles{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0}
+ .tile{border:1px solid #e0e0e0;border-radius:8px;padding:10px 16px;min-width:150px;border-left-width:4px}
+ .tile.up{border-left-color:#2e7d32} .tile.down{border-left-color:#c62828} .tile.flat{border-left-color:#9e9e9e}
+ .tile .tl{font-size:11px;color:#666} .tile .tv{font-size:16px;font-weight:600;margin-top:3px}
+ .tile .tv .ar{color:#999;font-weight:400} .tile .td{font-size:12px;margin-top:2px;font-weight:600}
+ .tile.up .td{color:#2e7d32} .tile.down .td{color:#c62828} .tile.flat .td{color:#9e9e9e}
+ .chart{border:1px solid #eee;border-radius:8px;padding:12px}
+ .cap{color:#777;font-size:11px;max-width:640px;margin:6px 0 0}
+ code{background:#f0f0f0;padding:1px 4px;border-radius:3px;font-size:11px}
+</style></head><body>
+ <h1>ARIA A/B comparison</h1>
+ <div class="note">Baseline <b>A</b> = ${esc(m.a.workspace)} <code>${esc(m.a.runId)}</code> · Candidate <b>B</b> = ${esc(m.b.workspace)} <code>${esc(m.b.runId)}</code></div>
+ <div class="note">Deltas read as <b>B − A</b>; tiles are coloured by direction (green = improvement, red = regression), not raw sign.</div>
+
+ <h2>Headline deltas</h2>
+ <div class="tiles">${kpiTiles(m)}</div>
+
+ <div class="cards">
+   <div class="chart"><h2 style="margin-top:0">Quality dimensions</h2>${renderRadar(m.qualityRadar, { aLabel, bLabel })}</div>
+   <div class="chart"><h2 style="margin-top:0">Where it moved (category families)</h2>${renderRadar(m.familyRadar, { aLabel, bLabel })}</div>
+ </div>
+ ${caption ? `<div class="cap">${caption}</div>` : ''}
+
+ <h2>Per-category shift (B − A pass rate, worst regression first)</h2>
+ <div class="chart">${renderDivergingBars(catBars)}</div>
+
+ <h2>Verdict split (A vs B)</h2>
+ <div class="chart">${renderGroupedBars(m.verdictGroups, { aLabel: 'A', bLabel: 'B' })}</div>
+</body></html>`;
 }
 
 export function renderDashboardHtml(m: AnalysisModel): string {

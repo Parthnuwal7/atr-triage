@@ -6,7 +6,7 @@ export type FailureClass =
   | 'scope-leak' | 'permission' | 'cross-tenant' | 'api-failure'
   | 'entity-not-found' | 'chart-binding' | 'empty-answer'
   | 'hallucination' | 'wrong-inference' | 'dropped-followup'
-  | 'missed-clarify' | 'wrong-language' | 'rig-error';
+  | 'missed-clarify' | 'over-clarify' | 'wrong-language' | 'rig-error';
 
 export type FixType = 'guard' | 'data' | 'routing' | 'reasoning' | 'infra' | 'rig';
 export type Detector = 'assertion' | 'judge';
@@ -35,6 +35,7 @@ export const CLASS_META: Record<FailureClass, { layer: Layer; fixType: FixType; 
   'wrong-inference':  { layer: 'engine',   fixType: 'reasoning', severity: 'med' },
   'dropped-followup': { layer: 'router',   fixType: 'routing',   severity: 'med' },
   'missed-clarify':   { layer: 'router',   fixType: 'routing',   severity: 'med' },
+  'over-clarify':     { layer: 'router',   fixType: 'routing',   severity: 'med' },
   'wrong-language':   { layer: 'renderer', fixType: 'guard',     severity: 'low' },
   'rig-error':        { layer: 'rig',      fixType: 'rig',       severity: 'high' },
 };

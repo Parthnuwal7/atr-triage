@@ -1,6 +1,22 @@
-import type { AnalysisModel, TurnDetail, EvalMetrics, ComparisonModel } from './analysis.js';
+import type { AnalysisModel, TurnDetail, EvalMetrics, ComparisonModel, GateSummary } from './analysis.js';
 import { renderDonut, renderBars, renderRadar, renderDivergingBars, renderGroupedBars } from './svg.js';
 import { renderMarkdown } from './markdown.js';
+
+/** Deterministic safety gate + findings-by-class — the FIRST thing shown: is this run safe? */
+function gateSection(g: GateSummary | undefined): string {
+  if (!g || g.status === 'none') {
+    return `<div class="gate gate-none">⚪ Not asserted — run <code>assert</code> to get the deterministic safety gate.</div>`;
+  }
+  const badge = g.status === 'red'
+    ? `<span class="gate-badge red">🔴 GATE RED</span> ${g.blocking} blocking · ${g.total} findings`
+    : `<span class="gate-badge green">🟢 GATE GREEN</span> ${g.total} finding${g.total === 1 ? '' : 's'} (0 blocking)`;
+  const rows = g.byClass.length
+    ? `<table class="gate-tbl"><thead><tr><th>class</th><th>layer</th><th>sev</th><th>count</th></tr></thead><tbody>${
+        g.byClass.map(c => `<tr class="${c.blocking ? 'blk' : ''}"><td>${esc(c.label)}${c.blocking ? ' 🔒' : ''}</td><td>${esc(c.layer)}</td><td>${esc(c.severity)}</td><td>${c.value}</td></tr>`).join('')
+      }</tbody></table>`
+    : `<div class="note">No deterministic findings — clean on every checked invariant.</div>`;
+  return `<div class="gate gate-${g.status}">${badge}</div>${rows}`;
+}
 
 /** The judge's insights.md report, rendered as a collapsible panel when present. */
 function insightsSection(md: string | undefined): string {
@@ -187,6 +203,14 @@ export function renderDashboardHtml(m: AnalysisModel): string {
  .cards{display:flex;gap:32px;flex-wrap:wrap;align-items:center}
  .note{color:#666;font-size:12px}
  .mn{color:#999;font-weight:normal;font-size:11px}
+ .gate{border-radius:8px;padding:10px 16px;margin:14px 0 6px;font-size:14px;font-weight:600}
+ .gate-red{background:#fdecef;border:1px solid #f4b6c0} .gate-green{background:#eaf6ec;border:1px solid #b6dcbd}
+ .gate-none{background:#f3f4f6;border:1px solid #dfe3e8;color:#555;font-weight:400}
+ .gate-badge{padding:2px 8px;border-radius:12px;margin-right:8px}
+ .gate-badge.red{background:#c62828;color:#fff} .gate-badge.green{background:#2e7d32;color:#fff}
+ .gate-tbl{border-collapse:collapse;font-size:13px;margin:2px 0 8px}
+ .gate-tbl th,.gate-tbl td{border-bottom:1px solid #eee;padding:4px 14px 4px 0;text-align:left}
+ .gate-tbl tr.blk td{color:#c62828;font-weight:600}
  .insights{border:1px solid #d9e2ec;background:#f7fafc;border-radius:8px;padding:8px 16px;margin:16px 0}
  .insights summary{cursor:pointer;list-style:none}
  .insights-body{font-size:13px;line-height:1.55}
@@ -215,6 +239,7 @@ export function renderDashboardHtml(m: AnalysisModel): string {
  code{background:#f0f0f0;padding:1px 4px;border-radius:3px;font-size:11px}
 </style></head><body>
  <h1>ARIA Triage — ${esc(m.workspace)}</h1>
+ ${gateSection(m.gate)}
  ${insightsSection(m.insightsMd)}
  <div class="note">Window ${esc(m.fromDate)} → ${esc(m.toDate)} · ${m.total} turns · ${m.downvotes} downvoted · run ${esc(m.runId)}</div>
  <div class="note">Memory shown is CURRENT, not point-in-time. Click any row to expand.</div>

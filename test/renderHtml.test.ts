@@ -31,6 +31,26 @@ describe('renderDashboardHtml', () => {
     expect(html).toContain('queryDatabase');
     expect(html).toContain('made up'); // rationale rendered in detail block
   });
+  it('renders the deterministic gate banner + findings when a gate is present', () => {
+    const withGate: AnalysisModel = {
+      ...model,
+      gate: {
+        status: 'red', total: 5, blocking: 1,
+        byClass: [
+          { label: 'over-clarify', value: 4, blocking: false, severity: 'med', layer: 'router' },
+          { label: 'cross-tenant', value: 1, blocking: true, severity: 'p0', layer: 'auth' },
+        ],
+      },
+    };
+    const html = renderDashboardHtml(withGate);
+    expect(html).toContain('GATE RED');
+    expect(html).toContain('cross-tenant');
+    expect(html).toContain('over-clarify');
+    expect(html).toContain('1 blocking');
+  });
+  it('shows a not-asserted notice when there is no gate', () => {
+    expect(renderDashboardHtml(model)).toContain('Not asserted');
+  });
   it('renders interactive filter chips and expandable rows', () => {
     const html = renderDashboardHtml(model);
     expect(html).toContain('class="chip'); // filter chips

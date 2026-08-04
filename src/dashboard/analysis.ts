@@ -14,6 +14,35 @@ export interface AnalysisModel {
   turns: TurnDetail[];
   evalMetrics?: EvalMetrics; // present only for benchmark/eval runs
   insightsMd?: string; // the judge's insights.md report, when imported
+  gate?: GateSummary; // deterministic assert() gate + findings, when the run was asserted
+}
+
+export interface GateSummary {
+  /** red = a blocking finding fired; green = asserted & no blocker; none = never asserted. */
+  status: 'red' | 'green' | 'none';
+  total: number;
+  blocking: number;
+  byClass: Array<{ label: string; value: number; blocking: boolean; severity: string; layer: string }>;
+}
+
+export interface FindingGroupRow {
+  class: string;
+  layer: string;
+  severity: string;
+  blocking: boolean;
+  count: number;
+}
+
+/** Fold grouped finding rows into the gate summary. `asserted` distinguishes a clean run
+ *  (green) from one that was never asserted (none). Pure. */
+export function computeGate(rows: FindingGroupRow[], asserted: boolean): GateSummary {
+  const byClass = rows
+    .map(r => ({ label: r.class, value: Number(r.count), blocking: !!r.blocking, severity: r.severity, layer: r.layer }))
+    .sort((a, b) => b.value - a.value);
+  const total = byClass.reduce((s, c) => s + c.value, 0);
+  const blocking = byClass.filter(c => c.blocking).reduce((s, c) => s + c.value, 0);
+  const status: GateSummary['status'] = !asserted ? 'none' : blocking > 0 ? 'red' : 'green';
+  return { status, total, blocking, byClass };
 }
 
 // Mirror of scoring.ts's core tool aliases so dashboard correctness matches the runner.
@@ -159,6 +188,15 @@ export async function loadAnalysis(local: LocalDb, runId: string): Promise<Analy
     `SELECT c->>'toolName' label, count(*)::int value
      FROM turns t, jsonb_array_elements(COALESCE(t.tool_trace,'[]'::jsonb)) c
      WHERE t.run_id=$1 GROUP BY 1 ORDER BY value DESC`, [runId])).rows;
+  // Deterministic gate: findings grouped by class + whether the run was asserted at all
+  // (turns get a rig_status stamped during assert, so any non-null means it ran).
+  const findingRows = (await local.query<FindingGroupRow>(
+    `SELECT class, layer, severity, blocking, count(*)::int count
+     FROM findings WHERE run_id=$1 GROUP BY class, layer, severity, blocking ORDER BY count DESC`, [runId])).rows;
+  const asserted = Number((await local.query(
+    'SELECT count(*)::int c FROM turns WHERE run_id=$1 AND rig_status IS NOT NULL', [runId])).rows[0].c) > 0;
+  const gate = computeGate(findingRows, asserted);
+
   // ALL turns (not just broken), each with its verdict; broken first, then needs-work, good, unjudged.
   const turns = await fetchTurns(local, runId);
 
@@ -171,6 +209,7 @@ export async function loadAnalysis(local: LocalDb, runId: string): Promise<Analy
     turns,
     evalMetrics: computeEvalMetrics(turns),
     insightsMd: (run.insights_md as string) || undefined,
+    gate,
   };
 }
 

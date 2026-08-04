@@ -22,6 +22,20 @@ export const insertEvalTurnQuery = `
   ON CONFLICT (run_id, message_id) DO NOTHING
 `;
 
+export const listRunsQuery = `
+  SELECT r.run_id, r.workspace,
+    to_char(r.from_date, 'YYYY-MM-DD') AS from_date,
+    to_char(r.to_date, 'YYYY-MM-DD') AS to_date,
+    r.mode, r.source_row_count, r.created_at,
+    (SELECT COUNT(*)::int FROM turns t WHERE t.run_id = r.run_id) AS turn_count,
+    -- findings.run_id is uuid, runs.run_id is text — cast so the join types match.
+    (SELECT COUNT(*)::int FROM findings f WHERE f.run_id::text = r.run_id) AS finding_count,
+    (SELECT COUNT(*)::int FROM findings f WHERE f.run_id::text = r.run_id AND f.blocking) AS blocking_count
+  FROM runs r
+  ORDER BY r.created_at DESC
+  LIMIT 200
+`;
+
 export const selectTurnsForAssertQuery = `
   SELECT message_id, answer_text AS output, tool_trace AS tool_calls,
          total_time_ms, ttfb_ms, tool_called, trace, clarified

@@ -55,6 +55,12 @@ async function main() {
       if (res.gate === 'red') process.exitCode = 1; // gate fails the process for CI
       break;
     }
+    case 'ui': {
+      // Local web UI wrapping the pipeline — no CLI memorization. Keeps running (server).
+      const { startUi } = await import('./ui/server.js');
+      startUi(cfg, Number(flag('port', '4180')));
+      return; // do not fall through to the process-exit path; the server keeps the loop alive
+    }
     case 'dashboard': {
       // --compare <runB> renders an A/B comparison (baseline --run vs candidate --compare);
       // without it, the single-run dashboard is unchanged.
@@ -83,7 +89,7 @@ async function main() {
       break;
     }
     default:
-      console.error('usage: atr-triage migrate|extract|ingest-eval|judge-csv|import|assert|dashboard|golden');
+      console.error('usage: atr-triage migrate|extract|ingest-eval|judge-csv|import|assert|dashboard|golden|ui');
       process.exit(1);
   }
 }

@@ -10,6 +10,7 @@ import { runIngestEval } from '../ingestEval/ingestCommand.js';
 import { runAssert } from '../triage/assertCommand.js';
 import { runJudgeCsv } from '../judgeCsv/judgeCsvCommand.js';
 import { runImport } from '../importJudged/importCommand.js';
+import { runImportInsights } from '../importJudged/importInsights.js';
 import { runDashboard } from '../dashboard/dashboardCommand.js';
 import { runGoldenAdd, runGoldenList } from '../golden/goldenCommand.js';
 
@@ -21,6 +22,7 @@ export type RouteName =
   | 'judge'
   | 'import'
   | 'dashboard'
+  | 'insights'
   | 'goldenList'
   | 'goldenAdd'
   | 'dashboardFile';
@@ -34,6 +36,7 @@ export function matchRoute(method: string, pathname: string): RouteName | null {
   if (m === 'POST' && pathname === '/api/assert') return 'assert';
   if (m === 'POST' && pathname === '/api/judge-csv') return 'judge';
   if (m === 'POST' && pathname === '/api/import') return 'import';
+  if (m === 'POST' && pathname === '/api/insights') return 'insights';
   if (m === 'POST' && pathname === '/api/dashboard') return 'dashboard';
   if (m === 'GET' && pathname === '/api/golden') return 'goldenList';
   if (m === 'POST' && pathname === '/api/golden') return 'goldenAdd';
@@ -102,6 +105,12 @@ export async function handleJudge(cfg: TriageConfig, body: { runId?: string; out
 export async function handleImport(cfg: TriageConfig, body: { csvPath?: string; runId?: string }) {
   if (!body.csvPath) throw new Error('csvPath is required');
   return runImport(cfg, body.csvPath, body.runId || undefined);
+}
+
+export async function handleInsights(cfg: TriageConfig, body: { runId?: string; filePath?: string }) {
+  if (!body.runId) throw new Error('runId is required');
+  if (!body.filePath) throw new Error('filePath is required');
+  return runImportInsights(cfg, body.runId, body.filePath);
 }
 
 export async function handleDashboard(cfg: TriageConfig, body: { runId?: string; name?: string; compare?: string }) {

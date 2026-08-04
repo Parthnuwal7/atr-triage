@@ -34,7 +34,13 @@ async function main() {
     case 'import': {
       // --run lets a compact judgments CSV (message_id + verdict cols, no run_id) attribute to a run.
       const res = await runImport(cfg, flag('csv'), flag('run') || undefined);
-      console.log(`✓ imported ${res.imported} verdicts`); break;
+      const ins = res.insightsChars ? ` + insights (${res.insightsChars} chars)` : '';
+      console.log(`✓ imported ${res.imported} verdicts${ins}`); break;
+    }
+    case 'import-insights': {
+      const { runImportInsights } = await import('./importJudged/importInsights.js');
+      const res = await runImportInsights(cfg, flag('run'), flag('file'));
+      console.log(`✓ stored insights (${res.chars} chars) on run ${flag('run')}`); break;
     }
     case 'ingest-eval': {
       const res = await runIngestEval(cfg, flag('jsonl'));
@@ -89,7 +95,7 @@ async function main() {
       break;
     }
     default:
-      console.error('usage: atr-triage migrate|extract|ingest-eval|judge-csv|import|assert|dashboard|golden|ui');
+      console.error('usage: atr-triage migrate|extract|ingest-eval|judge-csv|import|import-insights|assert|dashboard|golden|ui');
       process.exit(1);
   }
 }

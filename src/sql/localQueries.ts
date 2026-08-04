@@ -55,6 +55,10 @@ export const updateTurnRigQuery = `
   UPDATE turns SET rig_status = $3, rig_reason = $4 WHERE run_id = $1 AND message_id = $2
 `;
 
+export const upsertRunInsightsQuery = `
+  UPDATE runs SET insights_md = $2 WHERE run_id = $1
+`;
+
 export const insertVerdictQuery = `
   INSERT INTO verdicts (run_id, message_id, verdict, category, severity, rationale)
   VALUES ($1, $2, $3, $4, $5, $6)

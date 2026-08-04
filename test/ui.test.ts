@@ -10,6 +10,7 @@ describe('matchRoute', () => {
     expect(matchRoute('POST', '/api/assert')).toBe('assert');
     expect(matchRoute('POST', '/api/judge-csv')).toBe('judge');
     expect(matchRoute('POST', '/api/import')).toBe('import');
+    expect(matchRoute('POST', '/api/insights')).toBe('insights');
     expect(matchRoute('POST', '/api/dashboard')).toBe('dashboard');
     expect(matchRoute('GET', '/api/golden')).toBe('goldenList');
     expect(matchRoute('POST', '/api/golden')).toBe('goldenAdd');

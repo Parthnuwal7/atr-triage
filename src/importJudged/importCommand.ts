@@ -1,8 +1,9 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { parse } from 'csv-parse/sync';
 import type { TriageConfig } from '../config.js';
 import { getLocalPool } from '../db.js';
 import { insertVerdictQuery } from '../sql/localQueries.js';
+import { siblingInsightsPath, runImportInsights } from './importInsights.js';
 
 export interface JudgedRow {
   run_id: string; message_id: string;
@@ -34,15 +35,22 @@ export async function runImport(
   cfg: TriageConfig,
   csvPath: string,
   defaultRunId?: string
-): Promise<{ imported: number }> {
+): Promise<{ imported: number; insightsChars?: number }> {
   const rows = parseJudgedCsv(readFileSync(csvPath, 'utf8'), defaultRunId);
   const local = getLocalPool(cfg);
   try {
     for (const r of rows) {
       await local.query(insertVerdictQuery, [r.run_id, r.message_id, r.verdict, r.category, r.severity, r.rationale]);
     }
-    return { imported: rows.length };
   } finally {
     await local.end();
   }
+  // Auto-attach the sibling insights.md (Cursor writes it next to the judged CSV) when present.
+  let insightsChars: number | undefined;
+  const runId = defaultRunId ?? rows[0]?.run_id;
+  const sib = siblingInsightsPath(csvPath);
+  if (runId && sib && existsSync(sib)) {
+    insightsChars = (await runImportInsights(cfg, runId, sib)).chars;
+  }
+  return { imported: rows.length, insightsChars };
 }

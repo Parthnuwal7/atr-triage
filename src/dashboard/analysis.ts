@@ -13,6 +13,7 @@ export interface AnalysisModel {
   byTool: Array<{ label: string; value: number }>;
   turns: TurnDetail[];
   evalMetrics?: EvalMetrics; // present only for benchmark/eval runs
+  insightsMd?: string; // the judge's insights.md report, when imported
 }
 
 // Mirror of scoring.ts's core tool aliases so dashboard correctness matches the runner.
@@ -137,7 +138,7 @@ export async function fetchTurns(local: LocalDb, runId: string): Promise<TurnDet
 }
 
 export async function loadAnalysis(local: LocalDb, runId: string): Promise<AnalysisModel> {
-  const run = (await local.query('SELECT workspace, from_date, to_date FROM runs WHERE run_id=$1', [runId])).rows[0] ?? {};
+  const run = (await local.query('SELECT workspace, from_date, to_date, insights_md FROM runs WHERE run_id=$1', [runId])).rows[0] ?? {};
   const total = Number((await local.query('SELECT count(*)::int c FROM turns WHERE run_id=$1', [runId])).rows[0].c);
   const downvotes = Number((await local.query('SELECT count(*)::int c FROM turns WHERE run_id=$1 AND downvoted', [runId])).rows[0].c);
   const verdictRows = (await local.query(
@@ -169,6 +170,7 @@ export async function loadAnalysis(local: LocalDb, runId: string): Promise<Analy
     bySignal, byTool: byTool.map(r => ({ label: r.label ?? '(none)', value: Number(r.value) })),
     turns,
     evalMetrics: computeEvalMetrics(turns),
+    insightsMd: (run.insights_md as string) || undefined,
   };
 }
 

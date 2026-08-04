@@ -1,5 +1,13 @@
 import type { AnalysisModel, TurnDetail, EvalMetrics, ComparisonModel } from './analysis.js';
 import { renderDonut, renderBars, renderRadar, renderDivergingBars, renderGroupedBars } from './svg.js';
+import { renderMarkdown } from './markdown.js';
+
+/** The judge's insights.md report, rendered as a collapsible panel when present. */
+function insightsSection(md: string | undefined): string {
+  if (!md || !md.trim()) return '';
+  return `<details class="insights" open><summary><h2 style="display:inline">🔎 Judge insights</h2></summary>
+    <div class="insights-body">${renderMarkdown(md)}</div></details>`;
+}
 
 function evalSection(m: EvalMetrics): string {
   const pct = m.toolTotal ? Math.round((100 * m.toolCorrect) / m.toolTotal) : null;
@@ -179,6 +187,13 @@ export function renderDashboardHtml(m: AnalysisModel): string {
  .cards{display:flex;gap:32px;flex-wrap:wrap;align-items:center}
  .note{color:#666;font-size:12px}
  .mn{color:#999;font-weight:normal;font-size:11px}
+ .insights{border:1px solid #d9e2ec;background:#f7fafc;border-radius:8px;padding:8px 16px;margin:16px 0}
+ .insights summary{cursor:pointer;list-style:none}
+ .insights-body{font-size:13px;line-height:1.55}
+ .insights-body h1,.insights-body h2,.insights-body h3{margin:14px 0 4px}
+ .insights-body h1{font-size:15px} .insights-body h2{font-size:14px} .insights-body h3{font-size:13px}
+ .insights-body code{background:#eef2f6;padding:1px 4px;border-radius:3px}
+ .insights-body ul{margin:4px 0 4px 4px}
  .chips{margin:14px 0 6px}
  .chip{border:1px solid #ccc;background:#f6f6f6;border-radius:14px;padding:4px 12px;margin-right:6px;cursor:pointer;font-size:13px}
  .chip.on{background:#222;color:#fff;border-color:#222}
@@ -200,6 +215,7 @@ export function renderDashboardHtml(m: AnalysisModel): string {
  code{background:#f0f0f0;padding:1px 4px;border-radius:3px;font-size:11px}
 </style></head><body>
  <h1>ARIA Triage — ${esc(m.workspace)}</h1>
+ ${insightsSection(m.insightsMd)}
  <div class="note">Window ${esc(m.fromDate)} → ${esc(m.toDate)} · ${m.total} turns · ${m.downvotes} downvoted · run ${esc(m.runId)}</div>
  <div class="note">Memory shown is CURRENT, not point-in-time. Click any row to expand.</div>
  <div class="cards">

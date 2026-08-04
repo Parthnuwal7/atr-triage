@@ -17,6 +17,7 @@ import {
   handleAssert,
   handleJudge,
   handleImport,
+  handleInsights,
   handleDashboard,
   handleGoldenList,
   handleGoldenAdd,
@@ -79,6 +80,8 @@ export function createUiServer(cfg: TriageConfig) {
           return sendJson(res, 200, await handleJudge(cfg, body));
         case 'import':
           return sendJson(res, 200, await handleImport(cfg, body));
+        case 'insights':
+          return sendJson(res, 200, await handleInsights(cfg, body));
         case 'dashboard':
           return sendJson(res, 200, await handleDashboard(cfg, body));
         case 'goldenAdd':

@@ -58,9 +58,12 @@ export function renderPage(): string {
   <section class="panel">
     <h2>Judge CSV</h2>
     <button onclick="needRun()&&post('/api/judge-csv',{runId:RUN},'judgeOut')">Generate judge CSV</button>
-    <label>judged CSV path (after you judge it)</label>
+    <label>judged CSV path (after you judge it — sibling .insights.md auto-attaches)</label>
     <input id="impPath" placeholder="reports/<run>.judged.csv" />
-    <button class="sec" onclick="needRun()&&post('/api/import',{runId:RUN,csvPath:val('impPath')},'judgeOut',loadRuns)">Import judged</button>
+    <button class="sec" onclick="needRun()&&post('/api/import',{runId:RUN,csvPath:val('impPath')},'judgeOut',loadRuns)">Import judged (+insights)</button>
+    <label>insights.md path (only if importing it separately)</label>
+    <input id="insPath" placeholder="reports/<run>.insights.md" />
+    <button class="sec" onclick="needRun()&&post('/api/insights',{runId:RUN,filePath:val('insPath')},'judgeOut')">Import insights</button>
     <div id="judgeOut" class="out"></div>
   </section>
 

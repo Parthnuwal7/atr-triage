@@ -77,6 +77,40 @@ extra word, e.g. "<Real Campaign> Summer Sale"): the CORRECT answer is to say it
 that is `good`. Fabricating metrics for it, or silently answering about a DIFFERENT real campaign
 whose name it contains, is `broken` / `hallucination`.
 
+## Workspace data ground-truth (this eval's workspace)
+KNOWN facts about the eval workspace's data. Grade against them, but note: **₹0 is often a
+LEGITIMATE value, not automatically a fabrication.** A single platform/account can genuinely be
+₹0 for a narrow window.
+
+**Connected platforms** (queries about these are answerable): Blinkit, Flipkart National,
+Flipkart Grocery, Google Ads, Amazon Ads, Zepto, Meta Ads, Instamart, Myntra.
+
+**NOT connected — Flipkart Minute, LinkedIn, BigBasket, 1mg (OneMG).** The CORRECT answer for a
+query about any of these is "not connected" / "not available in this workspace". Reporting ANY
+metric for them (spend, ROAS, campaigns) is a **`hallucination`** — e.g. "Flipkart Minute ROAS
+161.9×" is fabricated (the platform isn't connected), NOT a real result.
+
+**Structurally zero — connected but no active ad spend this period. Reporting ₹0 / "no spend"
+for these is always CORRECT:**
+- **Meta Ads** — connected but zero spend.
+- **Instamart** — zero / no spend.
+- **Myntra** — no ad *spend* (impressions/clicks only; "spend ₹0 / not reported" is correct).
+
+**Real-spend platforms — generally have spend, BUT ₹0 can still be legitimate for a small window
+(e.g. one week) or a specific account:**
+- **Blinkit, Flipkart National, Flipkart Grocery, Google Ads, Amazon Ads, Zepto.**
+- Do **not** auto-flag a ₹0 for these. A one-week or single-account ₹0 may be real.
+
+**When ₹0 IS the fabrication to flag (`broken` / `hallucination`):** not a lone ₹0, but the
+*pattern* of **faking full coverage from a partial query** — e.g. the answer claims a
+workspace-wide / "all platforms" total and fills platforms it did NOT query with ₹0 / "no data",
+OR a ₹0 for one platform CONTRADICTS a real figure shown elsewhere in the same answer for the
+same scope/window. The tell is manufactured completeness, not the presence of a zero.
+
+**Sparse / edge data:**
+- **Sales Offtake** — GMV can legitimately be zero for a given recent week; "0% / no GMV last
+  week" may be CORRECT.
+
 ## Rules
 - A refusal CAN be correct (out of scope, genuinely no data, nonexistent entity, another
   tenant's data). Only mark `wrong-refusal` when the request was genuinely answerable.

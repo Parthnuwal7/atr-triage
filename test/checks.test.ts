@@ -61,4 +61,34 @@ describe('runDeterministicChecks', () => {
   it('returns no findings for a clean, in-scope answer', () => {
     expect(runDeterministicChecks({ output: 'Your Google ROAS last week was 1.8x across 6 campaigns.' })).toEqual([]);
   });
+
+  // ── Harness scaffolding must be ignored by every deterministic check ──
+  it('does NOT flag scope-leak when a forbidden platform appears only in the harness preview/footer', () => {
+    const output =
+      '🧪 *Reasoning harness*\n\n_checking alarms, efficiency & coverage on google…_\n\n' +
+      'On Google your ROAS is 1.8x across 6 campaigns.\n\n' +
+      '---\n*🧪 harness · route diagnosis/problem (conf 0.97) · 4 steps*';
+    const fs = runDeterministicChecks({
+      output,
+      // "flipkart" is nowhere in the real answer; if the strip fails, the preview/footer could
+      // still not contain it — so we assert the real-answer body is what's judged.
+      expect: { scopePlatform: 'google', forbidPlatforms: ['amazon', 'flipkart'] },
+    });
+    expect(has(fs, 'scope-leak')).toBe(false);
+  });
+  it('does NOT let the harness footer inflate a stub past the empty-answer check', () => {
+    const output =
+      '🧪 *Reasoning harness*\n\nHere is your data:\n\n---\n*🧪 harness · route lookup (conf 0.99) · 900 tokens · 1 steps*';
+    expect(has(runDeterministicChecks({ output }), 'empty-answer')).toBe(true);
+  });
+  it('still flags a genuine scope-leak inside the real harness answer body', () => {
+    const output =
+      '🧪 *Reasoning harness*\n\nOn Amazon your ROAS is 4.2x and on Google 1.8x.\n\n' +
+      '---\n*🧪 harness · route lookup (conf 0.9) · 1 steps*';
+    const fs = runDeterministicChecks({
+      output,
+      expect: { scopePlatform: 'google', forbidPlatforms: ['amazon'] },
+    });
+    expect(fs.find(f => f.class === 'scope-leak')?.blocking).toBe(true);
+  });
 });

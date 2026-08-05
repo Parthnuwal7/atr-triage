@@ -30,10 +30,27 @@ export const PLATFORM_LABELS: Record<string, string[]> = {
 
 const NOT_FOUND_RE = /\b(no|not|couldn'?t|could not|don'?t|do not|isn'?t|no such|doesn'?t)\b[^.]*\b(find|found|exist|match|campaign|any)\b/i;
 
+/**
+ * Strip reasoning-harness INSTRUMENTATION so the checks judge the answer, not the scaffolding:
+ * the `🧪 *Reasoning harness*` banner, the loading preview (a lone italic line ending in `…` —
+ * which can name a platform, e.g. `_…on flipkart…_`, and would otherwise trip scope-leak), and
+ * the `---` + `*🧪 harness · route … · steps*` telemetry footer (which inflates length past the
+ * empty-answer threshold). Mirrors atr-be's scoring.stripHarnessScaffolding.
+ */
+export function stripHarnessScaffolding(text: string): string {
+  if (!text) return text;
+  return text
+    .replace(/🧪\s*\*Reasoning harness\*\s*/gi, '')
+    .replace(/^\s*_[^\n]*…_\s*$/gm, '') // loading preview line (ends with …)
+    .replace(/\n*-{3,}\s*\n+\s*\*?🧪[^\n]*\*?\s*$/gi, '') // --- + harness footer
+    .replace(/^\s*\*?🧪[^\n]*\*?\s*$/gm, '') // any stray harness telemetry line
+    .trim();
+}
+
 /** Run every deterministic assertion over a captured turn. Pure; order = severity-ish. */
 export function runDeterministicChecks(input: CheckInput): Finding[] {
   const findings: Finding[] = [];
-  const out = (input.output || '').trim();
+  const out = stripHarnessScaffolding((input.output || '').trim());
   const lower = out.toLowerCase();
   const expect = input.expect;
 

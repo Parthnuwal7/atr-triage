@@ -20,8 +20,18 @@ bottom. This file is NOT imported; it's for a human deciding what to fix. Keep i
 
 ## Columns you read (exactly these — no others exist in this CSV)
 - `user_query` — what the user asked.
-- `answer_text` — ARIA's full answer (may include a metrics footer; ignore the footer). If the
-  turn was clarified, this is the FINAL resolved answer (the clarification was auto-answered).
+- `answer_text` — ARIA's full answer. If the turn was clarified, this is the FINAL resolved
+  answer (the clarification was auto-answered). **IGNORE the reasoning-harness scaffolding** —
+  it is instrumentation, NOT part of the answer, and must never affect the verdict:
+  - the banner `🧪 *Reasoning harness*`
+  - the loading preview — a lone italic line ending in `…` (e.g. `_pulling the numbers…_`,
+    `_listing your campaigns…_`, `_checking alarms, efficiency & coverage on your account…_`)
+  - the telemetry footer — a `---` divider followed by
+    `*🧪 harness · route <type> (conf …) · <time> · <tokens> · <cost> · <steps>*`
+  Judge ONLY the substantive answer between the banner and the footer. A harness answer must be
+  scored EXACTLY as if an identical answer had no `🧪` markers — never reward or penalize the
+  presence of the harness scaffolding, and never treat footer words (e.g. "route lookup",
+  platform names in the route line) as content the answer provided.
 - `tool_trace` — JSON of tools ARIA ran (`toolName`, `kind`, `errorCode`, `rowCount`).
   If EMPTY/blank, tool activity was NOT recorded for this turn — judge on the answer alone.
 - `category` — the scenario type this case was designed to test (e.g. `False-Premise`,
@@ -53,6 +63,13 @@ When the row has `expected_tool`, this is a benchmark case run live:
 - **Hallucination check**: compare `answer_text` against `tool_trace`. If the answer states specific
   numbers/entities but the trace shows `rowCount: 0`, an error `kind`, or no relevant tool call →
   `hallucination`. If the trace supports the answer, it's likely `good`.
+  - The harness retrieves data through its OWN engine, so a harness answer may show an EMPTY
+    `tool_trace` yet still be fully grounded. An empty trace on a harness answer is NOT evidence
+    of hallucination by itself — judge the numbers on their plausibility/consistency, and reserve
+    `hallucination` for figures that are internally contradictory or impossible, not merely
+    "not visible in the trace".
+  - The harness footer's own tokens/cost/steps counts are telemetry, not data claims — never
+    flag them as unsupported numbers.
 
 ## Nonexistent entities (containment trap)
 When the user names a specific campaign/account that does NOT exist (often a real name with an

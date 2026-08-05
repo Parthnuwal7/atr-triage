@@ -111,4 +111,47 @@ describe('renderComparisonHtml', () => {
     expect(html).toContain('Adversarial'); // worst-regression category
     expect(html).toContain('Not measured'); // zero-denominator caption
   });
+
+  it('shows a not-asserted safety-gate notice when no gate is present', () => {
+    expect(renderComparisonHtml(cmp)).toContain('Not asserted');
+  });
+
+  it('renders the safety-gate comparison with per-class deltas and a blocking verdict', () => {
+    const withGate: ComparisonModel = {
+      ...cmp,
+      gate: {
+        a: { status: 'red', total: 5, blocking: 1, byClass: [] },
+        b: { status: 'red', total: 9, blocking: 4, byClass: [] },
+      },
+      findingDeltas: [
+        { class: 'cross-tenant', blocking: true, a: 1, b: 4, delta: 3 },
+        { class: 'over-clarify', blocking: false, a: 3, b: 1, delta: -2 },
+      ],
+    };
+    const html = renderComparisonHtml(withGate);
+    expect(html).toContain('Safety gate');
+    expect(html).toContain('cross-tenant');
+    expect(html).toContain('B added 3 blocking'); // 4 − 1
+    expect(html).toContain('+3');  // regression delta rendered with sign
+    expect(html).toContain('-2');  // improvement delta
+  });
+});
+
+describe('buildFindingDeltas', () => {
+  it('merges classes across arms, flags blocking, sorts blocking-then-regression first', async () => {
+    const { buildFindingDeltas } = await import('../src/dashboard/analysis.js');
+    const a = [
+      { class: 'over-clarify', layer: 'router', severity: 'med', blocking: false, count: 5 },
+      { class: 'cross-tenant', layer: 'auth', severity: 'p0', blocking: true, count: 1 },
+    ];
+    const b = [
+      { class: 'over-clarify', layer: 'router', severity: 'med', blocking: false, count: 2 },
+      { class: 'cross-tenant', layer: 'auth', severity: 'p0', blocking: true, count: 4 },
+      { class: 'api-failure', layer: 'infra', severity: 'high', blocking: false, count: 7 },
+    ];
+    const rows = buildFindingDeltas(a, b);
+    expect(rows[0]).toMatchObject({ class: 'cross-tenant', blocking: true, a: 1, b: 4, delta: 3 });
+    expect(rows.find(r => r.class === 'over-clarify')).toMatchObject({ a: 5, b: 2, delta: -3 });
+    expect(rows.find(r => r.class === 'api-failure')).toMatchObject({ a: 0, b: 7, delta: 7 });
+  });
 });

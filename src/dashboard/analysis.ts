@@ -338,6 +338,14 @@ export interface RadarAxis {
   b: number;
 }
 
+export interface FindingDeltaRow {
+  class: string;
+  blocking: boolean;
+  a: number; // finding count in arm A
+  b: number; // finding count in arm B
+  delta: number; // b − a (positive = B introduced more of this class = regression)
+}
+
 export interface ComparisonModel {
   a: { runId: string; workspace: string };
   b: { runId: string; workspace: string };
@@ -348,10 +356,42 @@ export interface ComparisonModel {
   verdictGroups: Array<{ label: string; a: number; b: number; color: string }>;
   notMeasured: string[]; // axes whose denominator was 0 in either arm
   relativeAxes: string[]; // axes scaled relative to the pair (caption)
+  gate?: { a: GateSummary; b: GateSummary }; // deterministic safety gate per arm (when both asserted)
+  findingDeltas?: FindingDeltaRow[]; // findings-by-class, both arms + delta, worst-regression first
 }
 
-/** Pure comparison builder. `loadComparison` is the thin DB wrapper around this. */
-export function buildComparison(aArm: ArmSummary, bArm: ArmSummary, aTurns: TurnDetail[], bTurns: TurnDetail[]): ComparisonModel {
+/** Merge two arms' grouped findings into per-class A/B/delta rows (worst-regression first). Pure. */
+export function buildFindingDeltas(aRows: FindingGroupRow[], bRows: FindingGroupRow[]): FindingDeltaRow[] {
+  const acc = new Map<string, FindingDeltaRow>();
+  const fold = (rows: FindingGroupRow[], side: 'a' | 'b') => {
+    for (const r of rows) {
+      const row = acc.get(r.class) ?? { class: r.class, blocking: false, a: 0, b: 0, delta: 0 };
+      row[side] += Number(r.count);
+      row.blocking = row.blocking || !!r.blocking;
+      acc.set(r.class, row);
+    }
+  };
+  fold(aRows, 'a');
+  fold(bRows, 'b');
+  return [...acc.values()]
+    .map(r => ({ ...r, delta: r.b - r.a }))
+    // Blocking classes first, then largest regression (delta desc), then bigger absolute counts.
+    .sort((x, y) => Number(y.blocking) - Number(x.blocking) || y.delta - x.delta || (y.a + y.b) - (x.a + x.b));
+}
+
+/** Pure comparison builder. `loadComparison` is the thin DB wrapper around this.
+ *  `aFindings`/`bFindings` + `aAsserted`/`bAsserted` are optional so callers/tests that only
+ *  care about the quality axes can omit them; when present they drive the safety-gate section. */
+export function buildComparison(
+  aArm: ArmSummary,
+  bArm: ArmSummary,
+  aTurns: TurnDetail[],
+  bTurns: TurnDetail[],
+  aFindings: FindingGroupRow[] = [],
+  bFindings: FindingGroupRow[] = [],
+  aAsserted = false,
+  bAsserted = false
+): ComparisonModel {
   const notMeasured: string[] = [];
   const pct = (axis: string, av: number | null, bv: number | null): RadarAxis => {
     if (av == null || bv == null) notMeasured.push(axis);
@@ -407,6 +447,11 @@ export function buildComparison(aArm: ArmSummary, bArm: ArmSummary, aTurns: Turn
     { label: 'error', a: aArm.verdictCounts.error, b: bArm.verdictCounts.error, color: '#455a64' },
   ];
 
+  // Safety gate per arm + findings-by-class delta. Only meaningful when at least one arm was
+  // asserted; otherwise both gates read "none" and the section renders as not-asserted.
+  const gate = { a: computeGate(aFindings, aAsserted), b: computeGate(bFindings, bAsserted) };
+  const findingDeltas = buildFindingDeltas(aFindings, bFindings);
+
   return {
     a: { runId: aArm.runId, workspace: aArm.workspace },
     b: { runId: bArm.runId, workspace: bArm.workspace },
@@ -417,7 +462,19 @@ export function buildComparison(aArm: ArmSummary, bArm: ArmSummary, aTurns: Turn
     verdictGroups,
     notMeasured: [...new Set(notMeasured)],
     relativeAxes,
+    gate,
+    findingDeltas,
   };
+}
+
+/** Findings grouped by class + whether the run was asserted at all (any turn with a rig_status). */
+async function fetchFindings(local: LocalDb, runId: string): Promise<{ rows: FindingGroupRow[]; asserted: boolean }> {
+  const rows = (await local.query<FindingGroupRow>(
+    `SELECT class, layer, severity, blocking, count(*)::int count
+     FROM findings WHERE run_id=$1 GROUP BY class, layer, severity, blocking ORDER BY count DESC`, [runId])).rows;
+  const asserted = Number((await local.query(
+    'SELECT count(*)::int c FROM turns WHERE run_id=$1 AND rig_status IS NOT NULL', [runId])).rows[0].c) > 0;
+  return { rows, asserted };
 }
 
 export async function loadComparison(local: LocalDb, runIdA: string, runIdB: string): Promise<ComparisonModel> {
@@ -427,5 +484,7 @@ export async function loadComparison(local: LocalDb, runIdA: string, runIdB: str
   const bTurns = await fetchTurns(local, runIdB);
   const aArm = computeArmSummary(runIdA, wsA, aTurns);
   const bArm = computeArmSummary(runIdB, wsB, bTurns);
-  return buildComparison(aArm, bArm, aTurns, bTurns);
+  const aF = await fetchFindings(local, runIdA);
+  const bF = await fetchFindings(local, runIdB);
+  return buildComparison(aArm, bArm, aTurns, bTurns, aF.rows, bF.rows, aF.asserted, bF.asserted);
 }

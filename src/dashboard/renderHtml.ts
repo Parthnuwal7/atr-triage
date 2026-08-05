@@ -144,6 +144,43 @@ function kpiTiles(m: ComparisonModel): string {
     .join('');
 }
 
+/** Safety-gate comparison: both arms' gate badges + a findings-by-class A/B/Δ table.
+ *  This is the headline for a harness A/B — did the candidate add or remove blocking findings? */
+function gateCompareSection(m: ComparisonModel): string {
+  const g = m.gate;
+  const deltas = m.findingDeltas ?? [];
+  if (!g || (g.a.status === 'none' && g.b.status === 'none')) {
+    return `<h2>Safety gate</h2>
+ <div class="note">Not asserted — run <code>assert</code> on both arms to compare the deterministic safety gate.</div>`;
+  }
+  const badge = (label: string, gs: typeof g.a) => {
+    if (gs.status === 'none') return `<div class="gcell"><div class="gl">${label}</div><span class="gate-badge none">⚪ not asserted</span></div>`;
+    const b = gs.status === 'red'
+      ? `<span class="gate-badge red">🔴 RED</span> ${gs.blocking} blocking · ${gs.total} findings`
+      : `<span class="gate-badge green">🟢 GREEN</span> ${gs.total} finding${gs.total === 1 ? '' : 's'}`;
+    return `<div class="gcell"><div class="gl">${label}</div>${b}</div>`;
+  };
+  const blkDelta = (g.b.blocking ?? 0) - (g.a.blocking ?? 0);
+  const verdict = blkDelta > 0
+    ? `<span class="reg">B added ${blkDelta} blocking safety finding${blkDelta === 1 ? '' : 's'}</span>`
+    : blkDelta < 0
+      ? `<span class="imp">B removed ${-blkDelta} blocking safety finding${blkDelta === -1 ? '' : 's'}</span>`
+      : `<span class="flat">no change in blocking findings</span>`;
+  const rows = deltas.length
+    ? `<table class="fd-tbl"><thead><tr><th>finding class</th><th>A</th><th>B</th><th>Δ (B−A)</th></tr></thead><tbody>${
+        deltas.map(d => {
+          const cls = d.delta > 0 ? 'reg' : d.delta < 0 ? 'imp' : 'flat';
+          const sign = d.delta > 0 ? '+' : '';
+          return `<tr class="${d.blocking ? 'blk' : ''}"><td>${esc(d.class)}${d.blocking ? ' 🔒' : ''}</td><td>${d.a}</td><td>${d.b}</td><td class="${cls}">${sign}${d.delta}</td></tr>`;
+        }).join('')
+      }</tbody></table>`
+    : `<div class="note">No deterministic findings in either arm.</div>`;
+  return `<h2>Safety gate (deterministic)</h2>
+ <div class="gcells">${badge(`A · ${esc(m.a.workspace)}`, g.a)}${badge(`B · ${esc(m.b.workspace)}`, g.b)}<div class="gcell"><div class="gl">Blocking delta</div>${verdict}</div></div>
+ ${rows}
+ <div class="cap">🔒 = blocking class (scope-leak / permission / cross-tenant). Δ &gt; 0 means the candidate produced more findings of that class — a regression.</div>`;
+}
+
 export function renderComparisonHtml(m: ComparisonModel): string {
   const aLabel = `A · ${esc(m.a.workspace)}`;
   const bLabel = `B · ${esc(m.b.workspace)}`;
@@ -172,10 +209,21 @@ export function renderComparisonHtml(m: ComparisonModel): string {
  .chart{border:1px solid #eee;border-radius:8px;padding:12px}
  .cap{color:#777;font-size:11px;max-width:640px;margin:6px 0 0}
  code{background:#f0f0f0;padding:1px 4px;border-radius:3px;font-size:11px}
+ .gate-badge{padding:2px 8px;border-radius:12px;margin-right:6px;font-size:12px}
+ .gate-badge.red{background:#c62828;color:#fff} .gate-badge.green{background:#2e7d32;color:#fff} .gate-badge.none{background:#e0e0e0;color:#555}
+ .gcells{display:flex;gap:24px;flex-wrap:wrap;align-items:center;margin:8px 0}
+ .gcell .gl{font-size:11px;color:#666;margin-bottom:3px} .gcell{font-size:13px}
+ .fd-tbl{border-collapse:collapse;font-size:13px;margin:8px 0}
+ .fd-tbl th,.fd-tbl td{border-bottom:1px solid #eee;padding:4px 16px 4px 0;text-align:left}
+ .fd-tbl td:nth-child(2),.fd-tbl td:nth-child(3),.fd-tbl td:nth-child(4){text-align:right}
+ .fd-tbl tr.blk td:first-child{color:#c62828;font-weight:600}
+ .reg{color:#c62828;font-weight:600} .imp{color:#2e7d32;font-weight:600} .flat{color:#9e9e9e;font-weight:600}
 </style></head><body>
  <h1>ARIA A/B comparison</h1>
  <div class="note">Baseline <b>A</b> = ${esc(m.a.workspace)} <code>${esc(m.a.runId)}</code> · Candidate <b>B</b> = ${esc(m.b.workspace)} <code>${esc(m.b.runId)}</code></div>
  <div class="note">Deltas read as <b>B − A</b>; tiles are coloured by direction (green = improvement, red = regression), not raw sign.</div>
+
+ ${gateCompareSection(m)}
 
  <h2>Headline deltas</h2>
  <div class="tiles">${kpiTiles(m)}</div>

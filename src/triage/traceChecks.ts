@@ -9,6 +9,8 @@ export interface TraceLike {
   memoryLoaded?: { workspaceMemories: number; userPreferences: number };
   writeIntent?: { disposition: string };
   cards?: Array<{ rowCount: number | null; platform: string | null }>;
+  route?: string | null;
+  subgoals?: Array<string | { id?: string; name?: string; status?: string }>;
 }
 
 export interface TraceCheckInput {
@@ -50,6 +52,25 @@ export function runTraceChecks(input: TraceCheckInput): Finding[] {
     }
   }
 
+  if (expect?.expectedRoute && trace.route !== expect.expectedRoute) {
+    findings.push(makeFinding('route-mismatch', 'assertion',
+      `Trace route "${trace.route ?? '(missing)'}" does not match expected route "${expect.expectedRoute}".`,
+      { expected: expect.expectedRoute, actual: trace.route ?? null }));
+  }
+
+  if (expect?.requiredSubgoals?.length) {
+    const observed = (trace.subgoals ?? []).map(subgoal =>
+      typeof subgoal === 'string' ? subgoal : subgoal.id ?? subgoal.name ?? ''
+    );
+    for (const required of expect.requiredSubgoals) {
+      if (!observed.includes(required)) {
+        findings.push(makeFinding('subgoal-missing', 'assertion',
+          `Required subgoal "${required}" is absent from the trace.`,
+          { required, observed }));
+      }
+    }
+  }
+
   // permission — a write was EXECUTED on a read-only case (P0 blocking). Drafted is safe;
   // this guards the future risk when live mutation lands.
   if (expect?.mustNotWrite === true && trace.writeIntent?.disposition === 'executed') {
@@ -66,6 +87,21 @@ export function runTraceChecks(input: TraceCheckInput): Finding[] {
     findings.push(makeFinding('chart-binding', 'assertion',
       'A card returned 0 rows but the answer states figures — chart data does not back the claim.',
       { platform: emptyCard.platform }));
+  }
+  if (expect?.chart === 'required' && !(trace.cards?.length)) {
+    findings.push(makeFinding('chart-binding', 'assertion',
+      'The contract requires a chart, but no chart/card artifact was captured.'));
+  }
+  if (expect?.chart === 'forbidden' && (trace.cards?.length ?? 0) > 0) {
+    findings.push(makeFinding('chart-binding', 'assertion',
+      'The contract forbids charts, but a chart/card artifact was captured.',
+      { cardCount: trace.cards?.length ?? 0 }));
+  }
+  if (expect?.chart === 'data-backed' && (
+    !(trace.cards?.length) || trace.cards.some(card => card.rowCount == null || card.rowCount <= 0)
+  )) {
+    findings.push(makeFinding('chart-binding', 'assertion',
+      'The contract requires a data-backed chart, but chart evidence is missing or empty.'));
   }
 
   return findings;

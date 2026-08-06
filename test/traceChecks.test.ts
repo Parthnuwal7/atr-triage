@@ -38,4 +38,14 @@ describe('runTraceChecks', () => {
     const fs = runTraceChecks({ trace: { cards: [{ rowCount: 0, platform: 'google' }] }, output: 'I could not find any data.' });
     expect(has(fs, 'chart-binding')).toBe(false);
   });
+  it('fails route, subgoal, and chart contracts closed', () => {
+    const fs = runTraceChecks({
+      trace: { route: 'lookup', subgoals: ['fetch'], cards: [] },
+      expect: { expectedRoute: 'analysis', requiredSubgoals: ['compare'], chart: 'required' },
+    });
+    expect(fs.map(f => f.class)).toEqual(expect.arrayContaining([
+      'route-mismatch', 'subgoal-missing', 'chart-binding',
+    ]));
+    expect(fs.every(f => f.blocking)).toBe(true);
+  });
 });

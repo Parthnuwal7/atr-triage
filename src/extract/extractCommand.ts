@@ -111,17 +111,25 @@ export async function runExtract(cfg: TriageConfig, args: ExtractArgs) {
       : turns.filter(t => anySignal(signalsByMsg.get(t.assistantMessageId ?? t.userMessageId ?? '')!, t.downvoted));
 
     // persist run + turns locally
-    await local.query(insertRunQuery, [runId, args.workspace, args.from, args.to, args.all ? 'all' : 'filtered', selected.length]);
-    for (const t of selected) {
-      const key = t.assistantMessageId ?? t.userMessageId ?? '';
-      const s = signalsByMsg.get(key)!;
-      const mem = memoryByChat.get(t.chatId)!;
-      await local.query(insertTurnQuery, [
-        runId, key, t.chatId, t.createdAt || null, t.userQuery, t.enrichedQuery, t.answerText,
-        t.footerLatencyMs, mem.workspaceMemory, mem.userPreferences, mem.conversationMemory, t.downvoted,
-        s.noToolCall, s.toolError, s.emptyOrRefusal, s.noResponse, s.latencyOutlier,
-        t.toolTrace === null ? null : JSON.stringify(t.toolTrace),
-      ]);
+    await local.query('BEGIN');
+    try {
+      await local.query(insertRunQuery, [runId, args.workspace, args.from, args.to, args.all ? 'all' : 'filtered', selected.length]);
+      for (const t of selected) {
+        const key = t.assistantMessageId ?? t.userMessageId ?? '';
+        if (!key) throw new Error('extracted turn has no stable message id');
+        const s = signalsByMsg.get(key)!;
+        const mem = memoryByChat.get(t.chatId)!;
+        await local.query(insertTurnQuery, [
+          runId, key, t.chatId, t.createdAt || null, t.userQuery, t.enrichedQuery, t.answerText,
+          t.footerLatencyMs, mem.workspaceMemory, mem.userPreferences, mem.conversationMemory, t.downvoted,
+          s.noToolCall, s.toolError, s.emptyOrRefusal, s.noResponse, s.latencyOutlier,
+          t.toolTrace === null ? null : JSON.stringify(t.toolTrace),
+        ]);
+      }
+      await local.query('COMMIT');
+    } catch (error) {
+      await local.query('ROLLBACK');
+      throw error;
     }
 
     // write CSV

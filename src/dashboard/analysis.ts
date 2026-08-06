@@ -123,6 +123,17 @@ export interface TurnDetail {
   steps: number | null;
   total_time_ms: number | null;
   accuracy_score: number | null;
+  case_id?: string | null;
+  attempt_index?: number;
+  evidence_status?: string;
+  judge_count?: number;
+  disagreement?: boolean;
+  model_id?: string | null;
+  dimension_scores?: Record<string, number> | null;
+  expected_contract_version?: string | null;
+  assertion_schema_version?: number | null;
+  assertion_outcome?: 'pass' | 'fail' | 'ineligible' | null;
+  measurement_eligible?: boolean;
 }
 
 export interface EvalMetrics {
@@ -158,7 +169,17 @@ export async function fetchTurns(local: LocalDb, runId: string): Promise<TurnDet
             COALESCE(v.severity,'') severity, COALESCE(v.rationale,'') rationale,
             t.category eval_category,
             t.expected_tool, t.tool_called, t.tokens_total, t.cost_usd,
-            t.steps, t.total_time_ms, t.accuracy_score
+            t.steps, t.total_time_ms, t.accuracy_score,
+            t.case_id, t.attempt_index, t.evidence_status, t.model_id,
+            t.expected_contract_version, t.assertion_schema_version, t.assertion_outcome,
+            t.measurement_eligible,
+            COALESCE(v.judge_count,0)::int judge_count, COALESCE(v.disagreement,false) disagreement,
+            (SELECT jsonb_object_agg(ds.key, ds.avg_score) FROM (
+               SELECT e.key, avg((e.value)::numeric)::float avg_score
+               FROM judgments j CROSS JOIN LATERAL jsonb_each_text(j.dimensions) e
+               WHERE j.run_id=t.run_id AND j.message_id=t.message_id
+               GROUP BY e.key
+             ) ds) dimension_scores
      FROM turns t LEFT JOIN verdicts v USING (run_id, message_id)
      WHERE t.run_id=$1
      ORDER BY CASE COALESCE(v.verdict,'')
@@ -358,6 +379,48 @@ export interface ComparisonModel {
   relativeAxes: string[]; // axes scaled relative to the pair (caption)
   gate?: { a: GateSummary; b: GateSummary }; // deterministic safety gate per arm (when both asserted)
   findingDeltas?: FindingDeltaRow[]; // findings-by-class, both arms + delta, worst-regression first
+  validity?: BenchmarkValidity;
+  matched?: MatchedMetrics;
+  matchedCases?: Array<{
+    key: string;
+    caseId: string;
+    category: string;
+    query: string;
+    verdictA: string;
+    verdictB: string;
+    delta: number | null;
+    evidenceA: string;
+    evidenceB: string;
+  }>;
+  dimensionDeltas?: Array<{ dimension: string; a: number; b: number; delta: number }>;
+  eligibility?: PairedEligibility;
+}
+
+export interface BenchmarkValidity {
+  status: 'valid' | 'inconclusive' | 'invalid';
+  reasons: string[];
+  matchedCases: number;
+  totalA: number;
+  totalB: number;
+  judgeCoveragePct: number;
+  evidenceCoveragePct: number;
+  disagreementCount: number;
+  assertionCoveragePct?: number;
+  measurementEligibilityPct?: number;
+}
+
+export interface PairedEligibility {
+  eligible: boolean;
+  decision: 'promote' | 'reject' | 'inconclusive';
+  reasons: string[];
+}
+
+export interface MatchedMetrics {
+  wins: number;
+  losses: number;
+  ties: number;
+  meanDeltaPct: number | null;
+  confidence95: [number, number] | null;
 }
 
 /** Merge two arms' grouped findings into per-class A/B/delta rows (worst-regression first). Pure. */
@@ -390,7 +453,15 @@ export function buildComparison(
   aFindings: FindingGroupRow[] = [],
   bFindings: FindingGroupRow[] = [],
   aAsserted = false,
-  bAsserted = false
+  bAsserted = false,
+  compatibility: {
+    fixtureA?: string | null; fixtureB?: string | null;
+    promptA?: string | null; promptB?: string | null;
+    experimentA?: string | null; experimentB?: string | null;
+    seedA?: number | null; seedB?: number | null;
+    contractA?: string | null; contractB?: string | null;
+    assertionSchemaA?: number | null; assertionSchemaB?: number | null;
+  } = {}
 ): ComparisonModel {
   const notMeasured: string[] = [];
   const pct = (axis: string, av: number | null, bv: number | null): RadarAxis => {
@@ -451,6 +522,141 @@ export function buildComparison(
   // asserted; otherwise both gates read "none" and the section renders as not-asserted.
   const gate = { a: computeGate(aFindings, aAsserted), b: computeGate(bFindings, bAsserted) };
   const findingDeltas = buildFindingDeltas(aFindings, bFindings);
+  const pairKey = (t: TurnDetail) => `${t.case_id ?? t.message_id}::${t.attempt_index ?? 0}`;
+  const aByKey = new Map(aTurns.map(t => [pairKey(t), t]));
+  const pairs = bTurns
+    .map(b => ({ a: aByKey.get(pairKey(b)), b }))
+    .filter((p): p is { a: TurnDetail; b: TurnDetail } => !!p.a);
+  const score = (v: string): number | null => v === 'good' ? 1 : v === 'needs-work' ? 0.5 : v === 'broken' ? 0 : null;
+  const deltas = pairs
+    .map(({ a, b }) => {
+      const av = score(a.verdict);
+      const bv = score(b.verdict);
+      return av == null || bv == null ? null : bv - av;
+    })
+    .filter((v): v is number => v != null);
+  const meanDelta = deltas.length ? deltas.reduce((sum, value) => sum + value, 0) / deltas.length : null;
+  const variance = deltas.length > 1 && meanDelta != null
+    ? deltas.reduce((sum, value) => sum + ((value - meanDelta) ** 2), 0) / (deltas.length - 1)
+    : null;
+  const margin = variance == null ? null : 1.96 * Math.sqrt(variance / deltas.length);
+  const matched: MatchedMetrics = {
+    wins: deltas.filter(d => d > 0).length,
+    losses: deltas.filter(d => d < 0).length,
+    ties: deltas.filter(d => d === 0).length,
+    meanDeltaPct: meanDelta == null ? null : Math.round(meanDelta * 1000) / 10,
+    confidence95: meanDelta == null || margin == null
+      ? null
+      : [Math.round((meanDelta - margin) * 1000) / 10, Math.round((meanDelta + margin) * 1000) / 10],
+  };
+  const matchedCases = pairs.map(({ a, b }) => {
+    const av = score(a.verdict);
+    const bv = score(b.verdict);
+    return {
+      key: pairKey(a),
+      caseId: a.case_id ?? a.message_id,
+      category: a.eval_category ?? b.eval_category ?? 'Uncategorized',
+      query: a.user_query || b.user_query,
+      verdictA: a.verdict,
+      verdictB: b.verdict,
+      delta: av == null || bv == null ? null : bv - av,
+      evidenceA: a.evidence_status ?? 'missing',
+      evidenceB: b.evidence_status ?? 'missing',
+    };
+  }).sort((x, y) => (x.delta ?? 0) - (y.delta ?? 0) || x.caseId.localeCompare(y.caseId));
+  const allTurns = pairs.flatMap(p => [p.a, p.b]);
+  const dimensionNames = [...new Set(allTurns.flatMap(t => Object.keys(t.dimension_scores ?? {})))];
+  const dimensionDeltas = dimensionNames.map(dimension => {
+    const values = (turns: TurnDetail[]) => turns
+      .map(t => t.dimension_scores?.[dimension])
+      .filter((value): value is number => value != null);
+    const aValues = values(pairs.map(p => p.a));
+    const bValues = values(pairs.map(p => p.b));
+    const a = aValues.length ? aValues.reduce((sum, value) => sum + value, 0) / aValues.length : 0;
+    const b = bValues.length ? bValues.reduce((sum, value) => sum + value, 0) / bValues.length : 0;
+    return {
+      dimension,
+      a: Math.round(a * 100) / 100,
+      b: Math.round(b * 100) / 100,
+      delta: Math.round((b - a) * 100) / 100,
+    };
+  }).sort((x, y) => x.delta - y.delta);
+  const reasons: string[] = [];
+  if (compatibility.fixtureA && compatibility.fixtureB && compatibility.fixtureA !== compatibility.fixtureB) {
+    reasons.push('fixture versions differ');
+  }
+  if (compatibility.promptA && compatibility.promptB && compatibility.promptA !== compatibility.promptB) {
+    reasons.push('prompt versions differ');
+  }
+  if (!compatibility.fixtureA || !compatibility.fixtureB) reasons.push('fixture provenance is missing');
+  if (!compatibility.promptA || !compatibility.promptB) reasons.push('judge prompt provenance is missing');
+  if (compatibility.experimentA && compatibility.experimentB && compatibility.experimentA !== compatibility.experimentB) {
+    reasons.push('experiment ids differ');
+  }
+  if (compatibility.seedA != null && compatibility.seedB != null && compatibility.seedA !== compatibility.seedB) {
+    reasons.push('experiment seeds differ');
+  }
+  if (!compatibility.contractA || !compatibility.contractB) {
+    reasons.push('expected contract provenance is missing');
+  } else if (compatibility.contractA !== compatibility.contractB) {
+    reasons.push('expected contract versions differ');
+  }
+  if (compatibility.assertionSchemaA == null || compatibility.assertionSchemaB == null) {
+    reasons.push('assertion schema provenance is missing');
+  } else if (compatibility.assertionSchemaA !== compatibility.assertionSchemaB) {
+    reasons.push('assertion schema versions differ');
+  }
+  if (pairs.length !== aTurns.length || pairs.length !== bTurns.length) reasons.push('arms do not contain identical matched attempts');
+  const judgeCoveragePct = allTurns.length
+    ? Math.round(100 * allTurns.filter(t => isJudged(t.verdict)).length / allTurns.length)
+    : 0;
+  const evidenceCoveragePct = allTurns.length
+    ? Math.round(100 * allTurns.filter(t => t.evidence_status === 'sufficient').length / allTurns.length)
+    : 0;
+  const assertionCoveragePct = allTurns.length
+    ? Math.round(100 * allTurns.filter(t => t.assertion_outcome != null).length / allTurns.length)
+    : 0;
+  const measurementEligibilityPct = allTurns.length
+    ? Math.round(100 * allTurns.filter(t => t.measurement_eligible === true).length / allTurns.length)
+    : 0;
+  if (judgeCoveragePct < 100) reasons.push(`judge coverage is ${judgeCoveragePct}%`);
+  if (evidenceCoveragePct < 100) reasons.push(`evidence coverage is ${evidenceCoveragePct}%`);
+  if (assertionCoveragePct < 100) reasons.push(`assertion coverage is ${assertionCoveragePct}%`);
+  if (measurementEligibilityPct < 100) reasons.push(`measurement eligibility is ${measurementEligibilityPct}%`);
+  if (pairs.length === 0) reasons.push('no matched attempts');
+  const invalid = reasons.some(r =>
+    r.includes('versions differ') || r.includes('ids differ') || r.includes('seeds differ') ||
+    r.includes('no matched') || r.includes('identical matched') || r.includes('provenance is missing') ||
+    r.includes('assertion coverage') || r.includes('measurement eligibility')
+  );
+  const validity: BenchmarkValidity = {
+    status: invalid ? 'invalid' : reasons.length || deltas.length < 10 ? 'inconclusive' : 'valid',
+    reasons: [...reasons, ...(deltas.length > 0 && deltas.length < 10 ? ['fewer than 10 judged pairs'] : [])],
+    matchedCases: pairs.length,
+    totalA: aTurns.length,
+    totalB: bTurns.length,
+    judgeCoveragePct,
+    evidenceCoveragePct,
+    disagreementCount: allTurns.filter(t => t.disagreement).length,
+    assertionCoveragePct,
+    measurementEligibilityPct,
+  };
+  const pairedReasons = [...validity.reasons];
+  if (gate.a.status !== 'green' || gate.b.status !== 'green') {
+    pairedReasons.push('both deterministic safety gates must be green');
+  }
+  const eligible = validity.status === 'valid' && gate.a.status === 'green' && gate.b.status === 'green';
+  const confidence = matched.confidence95;
+  const decision: PairedEligibility['decision'] = !eligible
+    ? (validity.status === 'invalid' || gate.a.status === 'red' || gate.b.status === 'red' ? 'reject' : 'inconclusive')
+    : !confidence || (confidence[0] <= 0 && confidence[1] >= 0)
+      ? 'inconclusive'
+      : confidence[0] > 0 ? 'promote' : 'reject';
+  const eligibility: PairedEligibility = {
+    eligible,
+    decision,
+    reasons: [...new Set(pairedReasons)],
+  };
 
   return {
     a: { runId: aArm.runId, workspace: aArm.workspace },
@@ -464,6 +670,11 @@ export function buildComparison(
     relativeAxes,
     gate,
     findingDeltas,
+    validity,
+    matched,
+    matchedCases,
+    dimensionDeltas,
+    eligibility,
   };
 }
 
@@ -478,13 +689,30 @@ async function fetchFindings(local: LocalDb, runId: string): Promise<{ rows: Fin
 }
 
 export async function loadComparison(local: LocalDb, runIdA: string, runIdB: string): Promise<ComparisonModel> {
-  const wsA = (await local.query('SELECT workspace FROM runs WHERE run_id=$1', [runIdA])).rows[0]?.workspace ?? '';
-  const wsB = (await local.query('SELECT workspace FROM runs WHERE run_id=$1', [runIdB])).rows[0]?.workspace ?? '';
+  const runA = (await local.query(
+    `SELECT workspace, fixture_version, prompt_version, experiment_id, seed,
+            expected_contract_version, assertion_schema_version
+     FROM runs WHERE run_id=$1`, [runIdA]
+  )).rows[0] ?? {};
+  const runB = (await local.query(
+    `SELECT workspace, fixture_version, prompt_version, experiment_id, seed,
+            expected_contract_version, assertion_schema_version
+     FROM runs WHERE run_id=$1`, [runIdB]
+  )).rows[0] ?? {};
+  const wsA = runA.workspace ?? '';
+  const wsB = runB.workspace ?? '';
   const aTurns = await fetchTurns(local, runIdA);
   const bTurns = await fetchTurns(local, runIdB);
   const aArm = computeArmSummary(runIdA, wsA, aTurns);
   const bArm = computeArmSummary(runIdB, wsB, bTurns);
   const aF = await fetchFindings(local, runIdA);
   const bF = await fetchFindings(local, runIdB);
-  return buildComparison(aArm, bArm, aTurns, bTurns, aF.rows, bF.rows, aF.asserted, bF.asserted);
+  return buildComparison(aArm, bArm, aTurns, bTurns, aF.rows, bF.rows, aF.asserted, bF.asserted, {
+    fixtureA: runA.fixture_version, fixtureB: runB.fixture_version,
+    promptA: runA.prompt_version, promptB: runB.prompt_version,
+    experimentA: runA.experiment_id, experimentB: runB.experiment_id,
+    seedA: runA.seed, seedB: runB.seed,
+    contractA: runA.expected_contract_version, contractB: runB.expected_contract_version,
+    assertionSchemaA: runA.assertion_schema_version, assertionSchemaB: runB.assertion_schema_version,
+  });
 }

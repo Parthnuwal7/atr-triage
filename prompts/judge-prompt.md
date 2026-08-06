@@ -1,16 +1,28 @@
 # ARIA Answer Judge
 
 You are grading recorded answers from ARIA, a marketing-analytics assistant. You are given
-a CSV where each row is one user turn. Produce TWO files (write them to disk, don't paste).
+a CSV where each row is one user turn. Approach and model identity are intentionally blinded.
+Do not infer them from response style. Produce TWO files (write them to disk, don't paste).
 
 ## Deliverable 1 (PRIMARY — must be complete & correct): `<input>.judged.csv`
-This file is imported by a tool, one row per input turn, EXACTLY these five columns:
+For a legacy CSV containing `message_id`, use exactly these five columns:
 
 ```
 message_id,verdict,category,severity,rationale
 <message_id>,<verdict>,<category>,<severity>,"<one-sentence rationale>"
 ```
-Rules: quote the rationale (it may contain commas); keep `message_id` EXACTLY as given; one
+For a blinded bundle containing `blind_id`, use exactly these eight columns:
+
+```
+blind_id,verdict,category,severity,rationale,dimensions_json,confidence,evidence_sufficiency
+response-abc123,good,other,low,"Correct and grounded.","{""correctness"":4,""grounding"":4,""relevance"":4,""scope"":4,""chartChoice"":3,""usefulness"":4}",0.92,sufficient
+```
+
+Dimension scores are integers from 0 (failed) to 4 (excellent). `confidence` is 0–1.
+`evidence_sufficiency` is `sufficient`, `partial`, `missing`, or `contradictory`.
+When evidence cannot support a correctness judgment, use verdict `insufficient-evidence`;
+do not guess.
+Rules: quote the rationale (it may contain commas); keep the input identifier EXACTLY as given; one
 row per input turn, none skipped. This file is load-bearing — finish it FULLY before writing
 Deliverable 2, and never let the insights write shorten or omit CSV rows.
 

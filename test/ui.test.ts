@@ -29,6 +29,7 @@ describe('toRunSummary', () => {
   it('is GREEN with findings but no blocking, and NONE when unasserted', () => {
     expect(toRunSummary({ ...base, turn_count: 5, finding_count: 2, blocking_count: 0 }).gate).toBe('green');
     expect(toRunSummary({ ...base, turn_count: 5, finding_count: 0, blocking_count: 0 }).gate).toBe('none');
+    expect(toRunSummary({ ...base, turn_count: 5, finding_count: 0, blocking_count: 0, asserted_count: 5 }).gate).toBe('green');
   });
   it('coerces string counts (pg bigint) to numbers', () => {
     const s = toRunSummary({ ...base, turn_count: '7', finding_count: '0', blocking_count: '0' });

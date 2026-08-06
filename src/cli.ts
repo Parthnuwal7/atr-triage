@@ -8,6 +8,8 @@ import { runGoldenAdd, runGoldenExport, runGoldenList } from './golden/goldenCom
 import { runIngestEval } from './ingestEval/ingestCommand.js';
 import { runJudgeCsv } from './judgeCsv/judgeCsvCommand.js';
 import { runAssert } from './triage/assertCommand.js';
+import { persistExperimentPlan, runPlanBenchmark } from './benchmark/planCommand.js';
+import { runJudgeBundle, runImportBundleJudgments } from './judgeCsv/judgeBundle.js';
 
 function flag(name: string, def = ''): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -44,11 +46,33 @@ async function main() {
     }
     case 'ingest-eval': {
       const res = await runIngestEval(cfg, flag('jsonl'));
-      console.log(`✓ ingested ${res.ingested} eval cases · run ${res.runId}`); break;
+      console.log(`✓ ${res.duplicate ? 'reused' : 'ingested'} ${res.ingested} eval cases · run ${res.runId}`); break;
+    }
+    case 'plan-benchmark': {
+      const approaches = flag('approaches').split(',').map(v => v.trim()).filter(Boolean);
+      const res = runPlanBenchmark({
+        fixturePath: flag('fixture'), approaches,
+        repeats: Number(flag('repeats', '1')), seed: Number(flag('seed', '1')),
+        name: flag('name', 'ARIA benchmark'), promptVersion: flag('prompt-version', 'judge-v1'),
+        outPath: flag('out'),
+      });
+      await persistExperimentPlan(cfg, res);
+      console.log(`✓ planned ${res.attempts.length} interleaved attempts · experiment ${res.experimentId} → ${flag('out')}`); break;
     }
     case 'judge-csv': {
       const res = await runJudgeCsv(cfg, flag('run'), flag('out'));
       console.log(`✓ wrote ${res.rows} rows → ${flag('out')} (judge with prompts/judge-prompt.md → import --run ${flag('run')})`); break;
+    }
+    case 'judge-bundle': {
+      const runs = flag('runs').split(',').map(v => v.trim()).filter(Boolean);
+      const res = await runJudgeBundle(cfg, runs, flag('out'), flag('prompt-version', 'judge-v1'));
+      console.log(`✓ wrote blinded bundle ${res.batchId} · ${res.rows} rows → ${res.csvPath}`); break;
+    }
+    case 'import-bundle': {
+      const res = await runImportBundleJudgments(
+        cfg, flag('manifest'), flag('judgments'), flag('judge', 'cursor-agent')
+      );
+      console.log(`✓ imported ${res.imported} judgments · ${res.reviews} queued for review`); break;
     }
     case 'assert': {
       // Deterministic gate: rig-integrity + assertion checks over a run's turns.
@@ -71,7 +95,7 @@ async function main() {
       // --compare <runB> renders an A/B comparison (baseline --run vs candidate --compare);
       // without it, the single-run dashboard is unchanged.
       const res = await runDashboard(cfg, flag('run'), flag('name') || undefined, flag('compare') || undefined);
-      console.log(`✓ dashboard → ${res.htmlPath}`); break;
+      console.log(`✓ dashboard → ${res.htmlPath} · structured report → ${res.jsonPath}`); break;
     }
     case 'golden': {
       const sub = process.argv[3];
@@ -95,7 +119,7 @@ async function main() {
       break;
     }
     default:
-      console.error('usage: atr-triage migrate|extract|ingest-eval|judge-csv|import|import-insights|assert|dashboard|golden|ui');
+      console.error('usage: atr-triage migrate|extract|ingest-eval|plan-benchmark|judge-csv|judge-bundle|import|import-bundle|import-insights|assert|dashboard|golden|ui');
       process.exit(1);
   }
 }

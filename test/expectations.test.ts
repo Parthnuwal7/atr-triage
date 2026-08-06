@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseExpectations, expectationFor } from '../src/triage/expectations.js';
+import { expectationMetadata, parseExpectations, expectationFor } from '../src/triage/expectations.js';
 
 const RAW = JSON.stringify({
   'BOUND-06': { scopePlatform: 'google', forbidPlatforms: ['amazon', 'flipkart'] },
@@ -18,8 +18,27 @@ describe('expectations', () => {
     expect(expectationFor(m, 'ACT-02')?.mustNotWrite).toBe(true);
     expect(expectationFor(m, 'NOPE-99')).toBeUndefined();
   });
-  it('tolerates an empty / malformed file by returning an empty map', () => {
-    expect(parseExpectations('')).toEqual({});
-    expect(parseExpectations('not json')).toEqual({});
+  it('fails closed on malformed or structurally invalid policy', () => {
+    expect(() => parseExpectations('')).toThrow(/invalid expectations JSON/);
+    expect(() => parseExpectations('not json')).toThrow(/invalid expectations JSON/);
+    expect(() => parseExpectations('[]')).toThrow(/must be an object/);
+    expect(() => parseExpectations('{"A":{"unexpected":true}}')).toThrow(/unknown expectation field/);
+  });
+  it('loads a versioned paired-rollout contract and exposes its provenance', () => {
+    const map = parseExpectations(JSON.stringify({
+      schemaVersion: 1,
+      contractVersion: 'fixture-2026-08-06',
+      cases: {
+        'FALSE-01': {
+          requiredEvidence: ['trace', 'tools'], expectedTool: 'queryData',
+          expectedRoute: 'analysis', premisePolicy: 'verify',
+          requiredSubgoals: ['verify-trend'], chart: 'data-backed',
+        },
+      },
+    }));
+    expect(expectationMetadata(map)).toEqual({
+      schemaVersion: 1, contractVersion: 'fixture-2026-08-06',
+    });
+    expect(expectationFor(map, 'FALSE-01::model-a')?.expectedRoute).toBe('analysis');
   });
 });

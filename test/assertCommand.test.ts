@@ -13,7 +13,7 @@ describe('buildRunReport', () => {
   it('turns red when any blocking finding is present', () => {
     const r = buildRunReport(turns, exp);
     expect(r.gate).toBe('red');
-    expect(r.blockingCount).toBe(1);
+    expect(r.blockingCount).toBe(2);
     expect(r.byClass['scope-leak']).toBe(1);
     expect(r.byClass['rig-error']).toBe(1);
   });

@@ -63,6 +63,7 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
 export function toRunSummary(row: Record<string, unknown>): RunSummary {
   const blocking = n(row.blocking_count);
   const findings = n(row.finding_count);
+  const asserted = row.asserted_count == null ? findings > 0 : n(row.asserted_count) > 0;
   return {
     runId: String(row.run_id),
     workspace: String(row.workspace ?? ''),
@@ -72,7 +73,7 @@ export function toRunSummary(row: Record<string, unknown>): RunSummary {
     turns: n(row.turn_count),
     findings,
     blocking,
-    gate: blocking > 0 ? 'red' : findings > 0 ? 'green' : 'none',
+    gate: blocking > 0 ? 'red' : asserted ? 'green' : 'none',
   };
 }
 

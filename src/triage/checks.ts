@@ -29,6 +29,16 @@ export const PLATFORM_LABELS: Record<string, string[]> = {
 };
 
 const NOT_FOUND_RE = /\b(no|not|couldn'?t|could not|don'?t|do not|isn'?t|no such|doesn'?t)\b[^.]*\b(find|found|exist|match|campaign|any)\b/i;
+const CHALLENGE_RE = /\b(not|isn'?t|cannot|can'?t|no evidence|couldn'?t verify|need to verify|appears|assumption|instead)\b/i;
+const REFUSAL_RE = /\b(can'?t|cannot|unable|not able|won'?t)\b/i;
+
+function matchesShape(shape: NonNullable<CaseExpectation['answerShape']>, output: string): boolean {
+  if (shape === 'table') return /^\s*\|.+\|\s*$/m.test(output) && /^\s*\|[\s:|-]+\|\s*$/m.test(output);
+  if (shape === 'chart') return /```(?:mermaid|vega|json)|!\[[^\]]*\]\(|<svg\b/i.test(output);
+  if (shape === 'clarification') return /\?\s*$/.test(output.trim());
+  if (shape === 'refusal') return REFUSAL_RE.test(output);
+  return output.trim().length >= 20;
+}
 
 /**
  * Strip reasoning-harness INSTRUMENTATION so the checks judge the answer, not the scaffolding:
@@ -61,6 +71,32 @@ export function runDeterministicChecks(input: CheckInput): Finding[] {
         `Tool ${t.name} failed (${t.errorCode ?? t.kind}).`,
         { tool: t.name, errorCode: t.errorCode ?? null, kind: t.kind ?? null }));
     }
+  }
+
+  if (expect?.expectedTool) {
+    const called = (input.tool_calls ?? []).map(t => t.name);
+    if (!called.includes(expect.expectedTool)) {
+      findings.push(makeFinding('tool-mismatch', 'assertion',
+        `Expected tool "${expect.expectedTool}" was not called.`,
+        { expected: expect.expectedTool, called }));
+    }
+  }
+
+  if (expect?.answerShape && !matchesShape(expect.answerShape, out)) {
+    findings.push(makeFinding('shape-mismatch', 'assertion',
+      `Answer does not satisfy required "${expect.answerShape}" shape.`,
+      { expectedShape: expect.answerShape }));
+  }
+
+  if (expect?.premisePolicy === 'challenge' && !CHALLENGE_RE.test(out)) {
+    findings.push(makeFinding('premise-failure', 'assertion',
+      'Answer accepted a premise that the contract requires it to challenge.',
+      { premisePolicy: expect.premisePolicy }));
+  }
+  if (expect?.premisePolicy === 'verify' && !(input.tool_calls?.length)) {
+    findings.push(makeFinding('premise-failure', 'assertion',
+      'Answer did not gather tool evidence before resolving a premise that requires verification.',
+      { premisePolicy: expect.premisePolicy }));
   }
 
   // empty-answer — a stub/header with no actual answer.

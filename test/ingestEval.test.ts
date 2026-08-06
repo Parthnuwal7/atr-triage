@@ -37,9 +37,9 @@ describe('parseEvalJsonl', () => {
     expect(cases[1].trace).toBeNull();
   });
 
-  it('ignores run_start/run_end and malformed lines', () => {
+  it('fails closed on malformed lines', () => {
     const noisy = jsonl + '\nnot json\n' + JSON.stringify({ kind: 'other' });
-    expect(parseEvalJsonl(noisy).cases).toHaveLength(2);
+    expect(() => parseEvalJsonl(noisy)).toThrow(/invalid JSONL/);
   });
 
   it('carries scenario_tag so a null id can still resolve a traceable message id', () => {
@@ -52,5 +52,19 @@ describe('parseEvalJsonl', () => {
     const { cases } = parseEvalJsonl(line);
     expect(cases[0].id).toBeNull();
     expect(cases[0].scenario_tag).toBe('NAV-03');
+  });
+
+  it('rejects truncated reports and duplicate case/model keys', () => {
+    const truncated = [
+      JSON.stringify({ kind: 'run_start', cases: 1 }),
+      JSON.stringify({ kind: 'case', index: 1, id: 'A', model: 'm', input: 'q', output: 'a' }),
+    ].join('\n');
+    expect(() => parseEvalJsonl(truncated)).toThrow(/missing run_end/);
+
+    const duplicate = [
+      JSON.stringify({ kind: 'case', index: 1, id: 'A', model: 'm', input: 'q', output: 'a' }),
+      JSON.stringify({ kind: 'case', index: 2, id: 'A', model: 'm', input: 'q2', output: 'a2' }),
+    ].join('\n');
+    expect(() => parseEvalJsonl(duplicate)).toThrow(/duplicate eval case/);
   });
 });

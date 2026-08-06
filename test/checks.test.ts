@@ -57,6 +57,20 @@ describe('runDeterministicChecks', () => {
     const fs = runDeterministicChecks({ output: 'Which platform should I report on?', clarified: true });
     expect(has(fs, 'over-clarify')).toBe(false);
   });
+  it('fails tool, answer-shape, and premise contracts closed', () => {
+    const fs = runDeterministicChecks({
+      output: 'ROAS definitely dropped, so cut budget now.',
+      tool_calls: [{ name: 'listCampaigns' }],
+      expect: {
+        expectedTool: 'queryData', answerShape: 'table', premisePolicy: 'challenge',
+      },
+    });
+    expect(fs.map(f => f.class)).toEqual(expect.arrayContaining([
+      'tool-mismatch', 'shape-mismatch', 'premise-failure',
+    ]));
+    expect(fs.filter(f => ['tool-mismatch', 'shape-mismatch', 'premise-failure'].includes(f.class))
+      .every(f => f.blocking)).toBe(true);
+  });
 
   it('returns no findings for a clean, in-scope answer', () => {
     expect(runDeterministicChecks({ output: 'Your Google ROAS last week was 1.8x across 6 campaigns.' })).toEqual([]);

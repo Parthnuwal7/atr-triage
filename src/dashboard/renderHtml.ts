@@ -144,6 +144,62 @@ function kpiTiles(m: ComparisonModel): string {
     .join('');
 }
 
+function validitySection(m: ComparisonModel): string {
+  const v = m.validity;
+  const matched = m.matched;
+  if (!v || !matched) {
+    return `<div class="validity invalid"><b>Benchmark validity: INVALID</b> — matched-case validity was not computed.</div>`;
+  }
+  const ci = matched.confidence95;
+  const fallbackDecision = v.status === 'invalid' || m.gate?.a.status === 'red' || m.gate?.b.status === 'red'
+    ? 'reject'
+    : v.status !== 'valid' || !ci || (ci[0] <= 0 && ci[1] >= 0)
+      ? 'inconclusive'
+      : ci[0] > 0 ? 'promote' : 'reject';
+  const decision = (m.eligibility?.decision ?? fallbackDecision).toUpperCase();
+  const allReasons = m.eligibility?.reasons ?? v.reasons;
+  const reasons = allReasons.length ? `<ul>${allReasons.map(reason => `<li>${esc(reason)}</li>`).join('')}</ul>` : '';
+  const confidence = ci ? `${ci[0] >= 0 ? '+' : ''}${ci[0]} to ${ci[1] >= 0 ? '+' : ''}${ci[1]} pp` : 'not estimable';
+  return `<div class="decision ${decision.toLowerCase()}"><b>${decision}</b></div>
+    <div class="validity ${v.status}"><b>Benchmark validity: ${v.status.toUpperCase()}</b> ·
+      ${v.matchedCases} matched attempts · judge coverage ${v.judgeCoveragePct}% ·
+      evidence coverage ${v.evidenceCoveragePct}% · ${v.disagreementCount} disagreements
+      ${v.assertionCoveragePct == null ? '' : ` · assertion coverage ${v.assertionCoveragePct}%`}
+      ${v.measurementEligibilityPct == null ? '' : ` · measurement eligibility ${v.measurementEligibilityPct}%`}
+      ${reasons}
+    </div>
+    <div class="matched"><b>Paired result:</b> ${matched.wins} wins / ${matched.losses} losses /
+      ${matched.ties} ties · mean delta ${matched.meanDeltaPct == null ? '—' : `${matched.meanDeltaPct >= 0 ? '+' : ''}${matched.meanDeltaPct} pp`}
+      · 95% CI ${confidence}</div>`;
+}
+
+function matchedCasesSection(m: ComparisonModel): string {
+  const cases = m.matchedCases ?? [];
+  if (!cases.length) return `<div class="note">No matched case evidence is available.</div>`;
+  const rows = cases.map(item => {
+    const cls = item.delta == null ? 'flat' : item.delta < 0 ? 'reg' : item.delta > 0 ? 'imp' : 'flat';
+    const delta = item.delta == null ? '—' : `${item.delta > 0 ? '+' : ''}${Math.round(item.delta * 100)}pp`;
+    return `<tr><td><code>${esc(item.caseId)}</code></td><td>${esc(item.category)}</td>` +
+      `<td>${esc(item.verdictA)} <span class="ar">→</span> ${esc(item.verdictB)}</td>` +
+      `<td class="${cls}">${delta}</td><td>${esc(item.evidenceA)} / ${esc(item.evidenceB)}</td>` +
+      `<td>${esc(item.query).slice(0, 240)}</td></tr>`;
+  }).join('');
+  return `<table class="case-tbl"><thead><tr><th>case</th><th>category</th><th>A → B</th><th>delta</th><th>evidence A/B</th><th>query</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+function dimensionsSection(m: ComparisonModel): string {
+  const dimensions = m.dimensionDeltas ?? [];
+  if (!dimensions.length) return `<div class="note">No structured dimension judgments imported.</div>`;
+  return `<table class="fd-tbl"><thead><tr><th>dimension</th><th>A</th><th>B</th><th>Δ</th></tr></thead><tbody>${
+    dimensions.map(item => {
+      const cls = item.delta < 0 ? 'reg' : item.delta > 0 ? 'imp' : 'flat';
+      return `<tr><td>${esc(item.dimension)}</td><td>${item.a.toFixed(2)}</td><td>${item.b.toFixed(2)}</td>` +
+        `<td class="${cls}">${item.delta > 0 ? '+' : ''}${item.delta.toFixed(2)}</td></tr>`;
+    }).join('')
+  }</tbody></table>`;
+}
+
 /** Safety-gate comparison: both arms' gate badges + a findings-by-class A/B/Δ table.
  *  This is the headline for a harness A/B — did the candidate add or remove blocking findings? */
 function gateCompareSection(m: ComparisonModel): string {
@@ -207,6 +263,11 @@ export function renderComparisonHtml(m: ComparisonModel): string {
  .tile .tv .ar{color:#999;font-weight:400} .tile .td{font-size:12px;margin-top:2px;font-weight:600}
  .tile.up .td{color:#2e7d32} .tile.down .td{color:#c62828} .tile.flat .td{color:#9e9e9e}
  .chart{border:1px solid #eee;border-radius:8px;padding:12px}
+ .decision{display:inline-block;padding:6px 12px;border-radius:6px;font-weight:700;margin:10px 0}
+ .decision.promote{background:#eaf6ec;color:#2e7d32}.decision.reject{background:#fdecef;color:#c62828}.decision.inconclusive{background:#fff8e1;color:#8d6e00}
+ .validity{border:1px solid #ddd;border-left-width:5px;border-radius:6px;padding:10px;margin:6px 0;font-size:13px}
+ .validity.valid{border-left-color:#2e7d32}.validity.inconclusive{border-left-color:#f9a825}.validity.invalid{border-left-color:#c62828}
+ .validity ul{margin:5px 0}.matched{font-size:13px;margin:8px 0}
  .cap{color:#777;font-size:11px;max-width:640px;margin:6px 0 0}
  code{background:#f0f0f0;padding:1px 4px;border-radius:3px;font-size:11px}
  .gate-badge{padding:2px 8px;border-radius:12px;margin-right:6px;font-size:12px}
@@ -214,6 +275,7 @@ export function renderComparisonHtml(m: ComparisonModel): string {
  .gcells{display:flex;gap:24px;flex-wrap:wrap;align-items:center;margin:8px 0}
  .gcell .gl{font-size:11px;color:#666;margin-bottom:3px} .gcell{font-size:13px}
  .fd-tbl{border-collapse:collapse;font-size:13px;margin:8px 0}
+ .case-tbl{border-collapse:collapse;font-size:12px;width:100%;margin:8px 0}.case-tbl th,.case-tbl td{border-bottom:1px solid #eee;padding:5px 8px;text-align:left}
  .fd-tbl th,.fd-tbl td{border-bottom:1px solid #eee;padding:4px 16px 4px 0;text-align:left}
  .fd-tbl td:nth-child(2),.fd-tbl td:nth-child(3),.fd-tbl td:nth-child(4){text-align:right}
  .fd-tbl tr.blk td:first-child{color:#c62828;font-weight:600}
@@ -222,6 +284,8 @@ export function renderComparisonHtml(m: ComparisonModel): string {
  <h1>ARIA A/B comparison</h1>
  <div class="note">Baseline <b>A</b> = ${esc(m.a.workspace)} <code>${esc(m.a.runId)}</code> · Candidate <b>B</b> = ${esc(m.b.workspace)} <code>${esc(m.b.runId)}</code></div>
  <div class="note">Deltas read as <b>B − A</b>; tiles are coloured by direction (green = improvement, red = regression), not raw sign.</div>
+
+ ${validitySection(m)}
 
  ${gateCompareSection(m)}
 
@@ -236,6 +300,12 @@ export function renderComparisonHtml(m: ComparisonModel): string {
 
  <h2>Per-category shift (B − A pass rate, worst regression first)</h2>
  <div class="chart">${renderDivergingBars(catBars)}</div>
+
+ <h2>Matched case evidence (worst regression first)</h2>
+ ${matchedCasesSection(m)}
+
+ <h2>Judge dimensions (0–4)</h2>
+ ${dimensionsSection(m)}
 
  <h2>Verdict split (A vs B)</h2>
  <div class="chart">${renderGroupedBars(m.verdictGroups, { aLabel: 'A', bLabel: 'B' })}</div>

@@ -72,6 +72,28 @@ pnpm triage dashboard --run <runId> --name aria-no-harness      # → dashboards
 Repeat for a second arm (e.g. `EVAL_REASON=1` for the reasoning harness) to get two
 runIds and two comparable dashboards.
 
+For a trustworthy paired experiment, create the seeded interleaved schedule first:
+
+```bash
+pnpm triage plan-benchmark \
+  --fixture ../atr-be/scripts/evals/fixtures/eval-aria-benchmark.json \
+  --approaches baseline,harness --repeats 3 --seed 42 \
+  --prompt-version aria-judge-v2 --out reports/experiment.json
+```
+
+The manifest fixes case order, balanced arm order, repeats, fixture version, judge-prompt
+version, and provenance. Run each listed attempt with the matching approach configuration,
+then pass its linkage to `run-eval.ts`; the runner writes it into the JSONL `run_start` record:
+
+```bash
+pnpm tsx scripts/evals/run-eval.ts \
+  --experiment-id <experimentId> --approach-id baseline --repeat-index 0 \
+  --seed 42 --prompt-version aria-judge-v2 --jsonl-out reports/baseline-r0.jsonl
+```
+
+Ingesting that report marks the matching planned attempts complete. Unknown experiment cases
+are rejected transactionally instead of silently contaminating the comparison.
+
 Here `message_id` values come from the eval fixture. If the JSONL has `"id": null`,
 `ingest-eval` falls back to `case-<index>` (`case-1`, `case-2`, …).
 
@@ -101,17 +123,49 @@ console.log('ids :',t.slice(1,4).map(l=>l.split(',')[0]).join(', '));
 ```
 Row count and id format must match the unjudged CSV.
 
+### Blinded Cursor judging bundle
+
+Prefer a single blinded bundle when comparing approaches:
+
+```bash
+pnpm triage judge-bundle --runs <baselineRun>,<candidateRun> \
+  --prompt-version aria-judge-v2 --out reports/judge-bundle
+```
+
+Attach only `reports/judge-bundle/responses.csv` and `prompts/judge-prompt.md` to Cursor.
+Do not attach `manifest.json`, because it contains the local mapping back to runs. Ask Cursor
+to write `judgments.csv` using the blinded eight-column format in the prompt, then import:
+
+```bash
+pnpm triage import-bundle \
+  --manifest reports/judge-bundle/manifest.json \
+  --judgments reports/judge-bundle/judgments.csv \
+  --judge cursor-agent-1
+```
+
+The import is all-or-nothing: missing, duplicate, invented, or invalid rows reject the whole
+file. Re-run with another `--judge` to measure disagreement. Low-confidence, insufficient-
+evidence, and disagreeing responses are queued in `judgment_reviews`.
+
 ## Commands
 
 | Command | Purpose |
 |---|---|
 | `migrate` | Apply local schema |
 | `extract --workspace <uuid> --from <d> --to <d> [--all] [--limit N]` | Pull prod turns → CSV + runId |
-| `ingest-eval --jsonl <path>` | Ingest an atr-be `run-eval.ts` JSONL → runId |
+| `ingest-eval --jsonl <path>` | Strict, transactional, content-deduplicated eval JSONL ingest → runId |
+| `plan-benchmark --fixture <json> --approaches <a,b> --repeats N --seed N --out <json>` | Create a seeded balanced experiment manifest |
 | `judge-csv --run <runId> --out <csv>` | Emit the CSV to hand to the judge |
+| `judge-bundle --runs <a,b> --prompt-version <v> --out <dir>` | Emit a blinded multi-arm Cursor review bundle |
+| `import-bundle --manifest <json> --judgments <csv> --judge <id>` | Strictly import structured judgments and queue disagreements |
+| `assert --run <runId> --expectations <json>` | Fail-closed deterministic gate; eval runs require a valid expectations policy |
 | `import --csv <judged.csv> [--run <runId>]` | Load verdicts (`--run` attributes a compact CSV) |
 | `dashboard --run <runId> [--name <name>]` | Versioned HTML → `dashboards/` |
 | `golden add --run <runId> [--message <id>] [--verdict broken]` | Promote turns into the golden set |
 | `golden list` / `golden export --out <file>` | Inspect / export the golden set |
 
 Nothing is written to production. All state lives in the local Postgres.
+
+Comparison dashboards also write a structured `.json` report. Their headline decision is
+`PROMOTE`, `REJECT`, or `INCONCLUSIVE`, based on matched attempts, 95% uncertainty, benchmark
+compatibility, evidence/judge coverage, disagreement, and deterministic safety regressions.

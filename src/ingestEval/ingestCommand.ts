@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import type { TriageConfig } from '../config.js';
 import { getLocalPool } from '../db.js';
-import { insertRunQuery, insertEvalTurnQuery } from '../sql/localQueries.js';
+import { insertEvalTurnQuery } from '../sql/localQueries.js';
+import { BENCHMARK_SCHEMA_VERSION, digest } from '../benchmark/schema.js';
 
 export interface EvalCaseRow {
   index: number;
@@ -26,34 +27,67 @@ export interface EvalCaseRow {
   trace: unknown; // per-turn TurnTrace (Plan 2) when the backend emitted it, else null
   clarified: boolean; // ARIA asked a clarifying question this turn
   clarify_rounds: number | null; // how many clarifications were auto-resolved
+  ttfb_ms: number | null;
+  artifacts: unknown;
+  provenance: unknown;
 }
 
 export interface EvalMeta {
   workspace: string;
   date: string; // YYYY-MM-DD
   models: string[];
+  expectedCases: number | null;
+  experimentId: string | null;
+  approachId: string | null;
+  seed: number | null;
+  fixtureVersion: string | null;
+  promptVersion: string | null;
+  deploymentVersion: string | null;
+  repeatIndex: number;
 }
 
-/** Parse a run-eval.ts JSONL report into run metadata + case rows. Pure/testable. */
+/** Strictly parse a complete run-eval JSONL report. Partial/corrupt evidence is never accepted. */
 export function parseEvalJsonl(text: string): { meta: EvalMeta; cases: EvalCaseRow[] } {
-  let meta: EvalMeta = { workspace: 'benchmark', date: new Date().toISOString().slice(0, 10), models: [] };
+  let meta: EvalMeta = {
+    workspace: 'benchmark', date: new Date().toISOString().slice(0, 10), models: [],
+    expectedCases: null, experimentId: null, approachId: null, seed: null,
+    fixtureVersion: null, promptVersion: null, deploymentVersion: null,
+    repeatIndex: 0,
+  };
   const cases: EvalCaseRow[] = [];
+  let sawStart = false;
+  let sawEnd = false;
+  let lineNo = 0;
   for (const line of text.split('\n')) {
+    lineNo++;
     const trimmed = line.trim();
     if (!trimmed) continue;
     let obj: Record<string, unknown>;
     try {
       obj = JSON.parse(trimmed);
-    } catch {
-      continue; // skip malformed lines
+    } catch (error) {
+      throw new Error(`invalid JSONL at line ${lineNo}: ${(error as Error).message}`);
     }
     if (obj.kind === 'run_start') {
+      if (sawStart) throw new Error('multiple run_start records');
+      sawStart = true;
       meta = {
         workspace: (obj.clientId as string) || 'benchmark',
         date: typeof obj.ts === 'string' ? obj.ts.slice(0, 10) : meta.date,
         models: Array.isArray(obj.models) ? (obj.models as string[]) : [],
+        expectedCases: obj.cases == null ? null : Number(obj.cases),
+        experimentId: (obj.experiment_id as string) ?? null,
+        approachId: (obj.approach_id as string) ?? null,
+        seed: obj.seed == null ? null : Number(obj.seed),
+        fixtureVersion: (obj.fixture_version as string) ?? null,
+        promptVersion: (obj.prompt_version as string) ?? null,
+        deploymentVersion: (obj.deployment_version as string) ?? null,
+        repeatIndex: obj.repeat_index == null ? 0 : Number(obj.repeat_index),
       };
     } else if (obj.kind === 'case') {
+      if (!Number.isFinite(Number(obj.index))) throw new Error(`case at line ${lineNo} has no valid index`);
+      if (typeof obj.input !== 'string') throw new Error(`case at line ${lineNo} has no input`);
+      if (typeof obj.output !== 'string') throw new Error(`case at line ${lineNo} has no output`);
       cases.push({
         index: Number(obj.index),
         id: (obj.id as string) ?? null,
@@ -76,8 +110,25 @@ export function parseEvalJsonl(text: string): { meta: EvalMeta; cases: EvalCaseR
         trace: obj.trace ?? null,
         clarified: obj.clarified === true,
         clarify_rounds: obj.clarify_rounds == null ? null : Number(obj.clarify_rounds),
+        ttfb_ms: obj.ttfb_ms == null ? null : Number(obj.ttfb_ms),
+        artifacts: obj.artifacts ?? null,
+        provenance: obj.provenance ?? null,
       });
+    } else if (obj.kind === 'run_end') {
+      sawEnd = true;
     }
+  }
+  if (!cases.length) throw new Error('eval report contains no cases');
+  // Legacy one-line fixtures are accepted, but a report that declares a run must be complete.
+  if (sawStart && !sawEnd) throw new Error('eval report is incomplete: missing run_end');
+  if (meta.expectedCases != null && cases.length !== meta.expectedCases) {
+    throw new Error(`eval report expected ${meta.expectedCases} cases but contains ${cases.length}`);
+  }
+  const keys = new Set<string>();
+  for (const c of cases) {
+    const key = `${c.id ?? c.scenario_tag ?? `case-${c.index}`}::${c.model}`;
+    if (keys.has(key)) throw new Error(`duplicate eval case/model: ${key}`);
+    keys.add(key);
   }
   return { meta, cases };
 }
@@ -85,27 +136,77 @@ export function parseEvalJsonl(text: string): { meta: EvalMeta; cases: EvalCaseR
 export async function runIngestEval(
   cfg: TriageConfig,
   jsonlPath: string
-): Promise<{ runId: string; ingested: number }> {
-  const { meta, cases } = parseEvalJsonl(readFileSync(jsonlPath, 'utf8'));
+): Promise<{ runId: string; ingested: number; duplicate: boolean }> {
+  const source = readFileSync(jsonlPath, 'utf8');
+  const sourceDigest = digest(source);
+  const { meta, cases } = parseEvalJsonl(source);
   const runId = randomUUID();
   const local = getLocalPool(cfg);
   try {
-    await local.query(insertRunQuery, [runId, meta.workspace, meta.date, meta.date, 'eval', cases.length]);
-    for (const c of cases) {
-      // Prefer the human-traceable fixture id (LOOK-01) so results trace back AND so two
-      // arms (harness vs no-harness) share stable message_ids for the A/B comparison join.
-      // The JSONL emits id:null but always carries scenario_tag, so fall through to it.
-      const messageId = c.id ?? c.scenario_tag ?? `case-${c.index}`;
-      await local.query(insertEvalTurnQuery, [
-        runId, messageId, c.category || 'eval', meta.date, c.input, c.output,
-        c.tool_calls == null ? null : JSON.stringify(c.tool_calls),
-        c.category, c.expected_tool, c.tool_called, c.tokens_total, c.tokens_in, c.tokens_out,
-        c.cost_usd, c.steps, c.total_time_ms, c.accuracy_score, c.overall_score,
-        c.trace == null ? null : JSON.stringify(c.trace),
-        c.clarified, c.clarify_rounds,
-      ]);
+    const existing = await local.query<{ run_id: string }>('SELECT run_id FROM runs WHERE source_digest=$1', [sourceDigest]);
+    if (existing.rows[0]) {
+      const count = await local.query<{ count: number }>('SELECT count(*)::int count FROM turns WHERE run_id=$1', [existing.rows[0].run_id]);
+      return { runId: existing.rows[0].run_id, ingested: Number(count.rows[0].count), duplicate: true };
     }
-    return { runId, ingested: cases.length };
+    await local.query('BEGIN');
+    try {
+      await local.query(
+        `INSERT INTO runs (
+           run_id, workspace, from_date, to_date, mode, source_row_count, schema_version,
+           experiment_id, approach_id, seed, fixture_version, prompt_version,
+           deployment_version, source_digest, provenance, ingestion_status, expected_case_count
+         ) VALUES ($1,$2,$3,$4,'eval',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'complete',$15)`,
+        [
+          runId, meta.workspace, meta.date, meta.date, cases.length, BENCHMARK_SCHEMA_VERSION,
+          meta.experimentId, meta.approachId, meta.seed, meta.fixtureVersion, meta.promptVersion,
+          meta.deploymentVersion, sourceDigest,
+          JSON.stringify({ sourcePath: jsonlPath, models: meta.models }), meta.expectedCases,
+        ]
+      );
+      const baseCounts = new Map<string, number>();
+      for (const c of cases) {
+        const base = c.id ?? c.scenario_tag ?? `case-${c.index}`;
+        baseCounts.set(base, (baseCounts.get(base) ?? 0) + 1);
+      }
+      for (const c of cases) {
+        const caseId = c.id ?? c.scenario_tag ?? `case-${c.index}`;
+        const messageId = (baseCounts.get(caseId) ?? 0) > 1 ? `${caseId}::${c.model}` : caseId;
+        const evidenceStatus = c.trace != null || (Array.isArray(c.tool_calls) && c.tool_calls.length)
+          ? 'sufficient'
+          : 'missing';
+        await local.query(insertEvalTurnQuery, [
+          runId, messageId, c.category || 'eval', meta.date, c.input, c.output,
+          c.tool_calls == null ? null : JSON.stringify(c.tool_calls),
+          c.category, c.expected_tool, c.tool_called, c.tokens_total, c.tokens_in, c.tokens_out,
+          c.cost_usd, c.steps, c.total_time_ms, c.accuracy_score, c.overall_score,
+          c.trace == null ? null : JSON.stringify(c.trace),
+          c.clarified, c.clarify_rounds, c.ttfb_ms, caseId, meta.repeatIndex, evidenceStatus,
+          c.artifacts == null ? null : JSON.stringify(c.artifacts),
+          JSON.stringify({ model: c.model, ...(c.provenance && typeof c.provenance === 'object' ? c.provenance as object : {}) }),
+          c.model || null,
+        ]);
+        if (meta.experimentId && meta.approachId) {
+          const linked = await local.query(
+            `UPDATE benchmark_attempts SET run_id=$5, message_id=$6, status='completed',
+               provenance=provenance || $7::jsonb
+             WHERE experiment_id=$1 AND case_id=$2 AND approach_id=$3 AND repeat_index=$4
+             RETURNING case_id`,
+            [
+              meta.experimentId, caseId, meta.approachId, meta.repeatIndex, runId, messageId,
+              JSON.stringify({ sourceDigest, model: c.model }),
+            ]
+          );
+          if (!linked.rows.length) {
+            throw new Error(`case ${caseId} does not exist in experiment plan ${meta.experimentId}`);
+          }
+        }
+      }
+      await local.query('COMMIT');
+    } catch (error) {
+      await local.query('ROLLBACK');
+      throw error;
+    }
+    return { runId, ingested: cases.length, duplicate: false };
   } finally {
     await local.end();
   }

@@ -135,6 +135,22 @@ describe('renderComparisonHtml', () => {
     expect(html).toContain('+3');  // regression delta rendered with sign
     expect(html).toContain('-2');  // improvement delta
   });
+
+  it('renders benchmark validity, paired uncertainty, and a decision', () => {
+    const valid: ComparisonModel = {
+      ...cmp,
+      validity: {
+        status: 'valid', reasons: [], matchedCases: 20, totalA: 20, totalB: 20,
+        judgeCoveragePct: 100, evidenceCoveragePct: 100, disagreementCount: 0,
+      },
+      matched: { wins: 12, losses: 3, ties: 5, meanDeltaPct: 22.5, confidence95: [8, 37] },
+    };
+    const html = renderComparisonHtml(valid);
+    expect(html).toContain('Benchmark validity: VALID');
+    expect(html).toContain('12 wins / 3 losses /');
+    expect(html).toContain('95% CI +8 to +37 pp');
+    expect(html).toContain('PROMOTE');
+  });
 });
 
 describe('buildFindingDeltas', () => {

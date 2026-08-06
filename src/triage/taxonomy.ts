@@ -6,7 +6,9 @@ export type FailureClass =
   | 'scope-leak' | 'permission' | 'cross-tenant' | 'api-failure'
   | 'entity-not-found' | 'chart-binding' | 'empty-answer'
   | 'hallucination' | 'wrong-inference' | 'dropped-followup'
-  | 'missed-clarify' | 'over-clarify' | 'wrong-language' | 'rig-error';
+  | 'missed-clarify' | 'over-clarify' | 'wrong-language' | 'rig-error'
+  | 'evidence-missing' | 'trace-missing' | 'tool-mismatch' | 'route-mismatch'
+  | 'shape-mismatch' | 'premise-failure' | 'subgoal-missing';
 
 export type FixType = 'guard' | 'data' | 'routing' | 'reasoning' | 'infra' | 'rig';
 export type Detector = 'assertion' | 'judge';
@@ -38,9 +40,20 @@ export const CLASS_META: Record<FailureClass, { layer: Layer; fixType: FixType; 
   'over-clarify':     { layer: 'router',   fixType: 'routing',   severity: 'med' },
   'wrong-language':   { layer: 'renderer', fixType: 'guard',     severity: 'low' },
   'rig-error':        { layer: 'rig',      fixType: 'rig',       severity: 'high' },
+  'evidence-missing': { layer: 'rig',      fixType: 'rig',       severity: 'high' },
+  'trace-missing':    { layer: 'rig',      fixType: 'rig',       severity: 'high' },
+  'tool-mismatch':    { layer: 'planner',  fixType: 'routing',   severity: 'high' },
+  'route-mismatch':   { layer: 'router',   fixType: 'routing',   severity: 'high' },
+  'shape-mismatch':   { layer: 'renderer', fixType: 'guard',     severity: 'high' },
+  'premise-failure':  { layer: 'engine',   fixType: 'reasoning', severity: 'high' },
+  'subgoal-missing':  { layer: 'planner',  fixType: 'reasoning', severity: 'high' },
 };
 
-const BLOCKING: ReadonlySet<FailureClass> = new Set(['scope-leak', 'permission', 'cross-tenant']);
+const BLOCKING: ReadonlySet<FailureClass> = new Set([
+  'scope-leak', 'permission', 'cross-tenant', 'rig-error', 'evidence-missing',
+  'trace-missing', 'tool-mismatch', 'route-mismatch', 'shape-mismatch',
+  'premise-failure', 'subgoal-missing', 'chart-binding',
+]);
 
 export function isBlocking(c: FailureClass): boolean {
   return BLOCKING.has(c);

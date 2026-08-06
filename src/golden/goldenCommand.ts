@@ -3,14 +3,34 @@ import type { TriageConfig } from '../config.js';
 import { getLocalPool } from '../db.js';
 
 export function toBenchmarkFixture(
-  golden: Array<{ query: string; category: string; expected_behavior?: string }>
-): { prompts: Array<{ id: string; query: string; category: string; note?: string }> } {
-  return {
-    prompts: golden.map((g, i) => ({
-      id: `GOLDEN-${String(i + 1).padStart(3, '0')}`,
+  golden: Array<{ id?: number; query: string; category: string; expected_behavior?: string }>
+): {
+  version: number;
+  prompts: Array<{ id: string; query: string; category: string; note?: string }>;
+  test_suites: Array<{ category: string; prompts: Array<{ input: string; scenario_tag: string; expected_summary?: string }> }>;
+} {
+  const prompts = golden.map((g, index) => ({
+      id: g.id != null ? `GOLDEN-${String(g.id).padStart(6, '0')}` : `GOLDEN-${String(index + 1).padStart(3, '0')}`,
       query: g.query,
       category: g.category || 'Uncategorized',
       note: g.expected_behavior || undefined,
+    }));
+  const byCategory = new Map<string, typeof prompts>();
+  for (const prompt of prompts) {
+    const bucket = byCategory.get(prompt.category) ?? [];
+    bucket.push(prompt);
+    byCategory.set(prompt.category, bucket);
+  }
+  return {
+    version: 1,
+    prompts,
+    test_suites: [...byCategory.entries()].map(([category, items]) => ({
+      category,
+      prompts: items.map(item => ({
+        input: item.query,
+        scenario_tag: item.id,
+        expected_summary: item.note,
+      })),
     })),
   };
 }
@@ -72,7 +92,7 @@ export async function runGoldenExport(cfg: TriageConfig, outPath: string): Promi
   const local = getLocalPool(cfg);
   try {
     const { rows } = await local.query(
-      `SELECT query, COALESCE(category,'') category, COALESCE(expected_behavior,'') expected_behavior
+      `SELECT id, query, COALESCE(category,'') category, COALESCE(expected_behavior,'') expected_behavior
        FROM golden_queries ORDER BY added_at`);
     const fixture = toBenchmarkFixture(rows);
     writeFileSync(outPath, JSON.stringify(fixture, null, 2));

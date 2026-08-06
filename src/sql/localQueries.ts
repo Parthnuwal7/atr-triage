@@ -17,9 +17,12 @@ export const insertEvalTurnQuery = `
   INSERT INTO turns (
     run_id, message_id, chat_id, created_at, user_query, answer_text, tool_trace,
     category, expected_tool, tool_called, tokens_total, tokens_in, tokens_out,
-    cost_usd, steps, total_time_ms, accuracy_score, overall_score, trace, clarified, clarify_rounds
-  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
-  ON CONFLICT (run_id, message_id) DO NOTHING
+    cost_usd, steps, total_time_ms, accuracy_score, overall_score, trace, clarified,
+    clarify_rounds, ttfb_ms, case_id, attempt_index, evidence_status, artifacts, provenance, model_id
+  ) VALUES (
+    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
+    $22,$23,$24,$25,$26,$27,$28
+  )
 `;
 
 export const listRunsQuery = `
@@ -28,6 +31,7 @@ export const listRunsQuery = `
     to_char(r.to_date, 'YYYY-MM-DD') AS to_date,
     r.mode, r.source_row_count, r.created_at,
     (SELECT COUNT(*)::int FROM turns t WHERE t.run_id = r.run_id) AS turn_count,
+    (SELECT COUNT(*)::int FROM turns t WHERE t.run_id = r.run_id AND t.rig_status IS NOT NULL) AS asserted_count,
     -- findings.run_id is uuid, runs.run_id is text — cast so the join types match.
     (SELECT COUNT(*)::int FROM findings f WHERE f.run_id::text = r.run_id) AS finding_count,
     (SELECT COUNT(*)::int FROM findings f WHERE f.run_id::text = r.run_id AND f.blocking) AS blocking_count
@@ -47,8 +51,11 @@ export const selectTurnsForAssertQuery = `
 export const clearFindingsForRunQuery = `DELETE FROM findings WHERE run_id = $1`;
 
 export const insertFindingQuery = `
-  INSERT INTO findings (run_id, message_id, class, layer, detector, fix_type, severity, blocking, message, evidence)
-  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+  INSERT INTO findings (
+    run_id, message_id, class, layer, detector, fix_type, severity, blocking, message, evidence,
+    contract_version, assertion_schema_version
+  )
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 `;
 
 export const updateTurnRigQuery = `

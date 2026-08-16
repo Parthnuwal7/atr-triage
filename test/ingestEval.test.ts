@@ -54,12 +54,12 @@ describe('parseEvalJsonl', () => {
     expect(cases[0].scenario_tag).toBe('NAV-03');
   });
 
-  it('rejects truncated reports and duplicate case/model keys', () => {
+  it('preserves truncated reports as partial and rejects duplicate case/model keys', () => {
     const truncated = [
       JSON.stringify({ kind: 'run_start', cases: 1 }),
       JSON.stringify({ kind: 'case', index: 1, id: 'A', model: 'm', input: 'q', output: 'a' }),
     ].join('\n');
-    expect(() => parseEvalJsonl(truncated)).toThrow(/missing run_end/);
+    expect(parseEvalJsonl(truncated).meta.ingestionStatus).toBe('partial');
 
     const duplicate = [
       JSON.stringify({ kind: 'case', index: 1, id: 'A', model: 'm', input: 'q', output: 'a' }),

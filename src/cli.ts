@@ -46,7 +46,7 @@ async function main() {
     }
     case 'ingest-eval': {
       const res = await runIngestEval(cfg, flag('jsonl'));
-      console.log(`✓ ${res.duplicate ? 'reused' : 'ingested'} ${res.ingested} eval cases · run ${res.runId}`); break;
+      console.log(`✓ ${res.duplicate ? 'reused' : 'ingested'} ${res.ingested} eval cases · ${res.status} run ${res.runId}`); break;
     }
     case 'plan-benchmark': {
       const approaches = flag('approaches').split(',').map(v => v.trim()).filter(Boolean);
@@ -61,7 +61,7 @@ async function main() {
     }
     case 'judge-csv': {
       const res = await runJudgeCsv(cfg, flag('run'), flag('out'));
-      console.log(`✓ wrote ${res.rows} rows → ${flag('out')} (judge with prompts/judge-prompt.md → import --run ${flag('run')})`); break;
+      console.log(`✓ wrote ${res.rows} rows → ${flag('out')} (for ARIA baseline use prompts/aria-baseline-deep-review.md → import --run ${flag('run')})`); break;
     }
     case 'judge-bundle': {
       const runs = flag('runs').split(',').map(v => v.trim()).filter(Boolean);

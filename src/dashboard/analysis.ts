@@ -15,6 +15,8 @@ export interface AnalysisModel {
   evalMetrics?: EvalMetrics; // present only for benchmark/eval runs
   insightsMd?: string; // the judge's insights.md report, when imported
   gate?: GateSummary; // deterministic assert() gate + findings, when the run was asserted
+  ingestionStatus?: 'complete' | 'partial';
+  expectedCases?: number | null;
 }
 
 export interface GateSummary {
@@ -104,6 +106,8 @@ export interface TurnDetail {
   workspace_memory: string;
   conversation_memory: string;
   tool_trace: unknown; // jsonb → array | null
+  artifacts?: unknown;
+  provenance?: unknown;
   downvoted: boolean;
   signal_no_tool_call: boolean;
   signal_tool_error: boolean;
@@ -162,7 +166,7 @@ export async function fetchTurns(local: LocalDb, runId: string): Promise<TurnDet
     `SELECT t.message_id, t.user_query, t.answer_text,
             COALESCE(t.workspace_memory,'') workspace_memory,
             COALESCE(t.conversation_memory,'') conversation_memory,
-            t.tool_trace, t.downvoted,
+            t.tool_trace, t.artifacts, t.provenance, t.downvoted,
             t.signal_no_tool_call, t.signal_tool_error, t.signal_empty_or_refusal,
             t.signal_no_response, t.signal_latency_outlier,
             COALESCE(v.verdict,'(unjudged)') verdict, COALESCE(v.category,'') category,
@@ -188,7 +192,7 @@ export async function fetchTurns(local: LocalDb, runId: string): Promise<TurnDet
 }
 
 export async function loadAnalysis(local: LocalDb, runId: string): Promise<AnalysisModel> {
-  const run = (await local.query('SELECT workspace, from_date, to_date, insights_md FROM runs WHERE run_id=$1', [runId])).rows[0] ?? {};
+  const run = (await local.query('SELECT workspace, from_date, to_date, insights_md, ingestion_status, expected_case_count FROM runs WHERE run_id=$1', [runId])).rows[0] ?? {};
   const total = Number((await local.query('SELECT count(*)::int c FROM turns WHERE run_id=$1', [runId])).rows[0].c);
   const downvotes = Number((await local.query('SELECT count(*)::int c FROM turns WHERE run_id=$1 AND downvoted', [runId])).rows[0].c);
   const verdictRows = (await local.query(
@@ -206,7 +210,7 @@ export async function loadAnalysis(local: LocalDb, runId: string): Promise<Analy
        UNION ALL SELECT 'latency_outlier', count(*) FILTER (WHERE signal_latency_outlier) FROM turns WHERE run_id=$1
      ) s WHERE s.value > 0 ORDER BY s.value DESC`, [runId])).rows.map(r => ({ label: r.label, value: Number(r.value) }));
   const byTool = (await local.query(
-    `SELECT c->>'toolName' label, count(*)::int value
+    `SELECT COALESCE(c->>'toolName', c->>'name') label, count(*)::int value
      FROM turns t, jsonb_array_elements(COALESCE(t.tool_trace,'[]'::jsonb)) c
      WHERE t.run_id=$1 GROUP BY 1 ORDER BY value DESC`, [runId])).rows;
   // Deterministic gate: findings grouped by class + whether the run was asserted at all
@@ -231,6 +235,8 @@ export async function loadAnalysis(local: LocalDb, runId: string): Promise<Analy
     evalMetrics: computeEvalMetrics(turns),
     insightsMd: (run.insights_md as string) || undefined,
     gate,
+    ingestionStatus: run.ingestion_status ?? 'complete',
+    expectedCases: run.expected_case_count == null ? null : Number(run.expected_case_count),
   };
 }
 
@@ -691,14 +697,17 @@ async function fetchFindings(local: LocalDb, runId: string): Promise<{ rows: Fin
 export async function loadComparison(local: LocalDb, runIdA: string, runIdB: string): Promise<ComparisonModel> {
   const runA = (await local.query(
     `SELECT workspace, fixture_version, prompt_version, experiment_id, seed,
-            expected_contract_version, assertion_schema_version
+            expected_contract_version, assertion_schema_version, ingestion_status
      FROM runs WHERE run_id=$1`, [runIdA]
   )).rows[0] ?? {};
   const runB = (await local.query(
     `SELECT workspace, fixture_version, prompt_version, experiment_id, seed,
-            expected_contract_version, assertion_schema_version
+            expected_contract_version, assertion_schema_version, ingestion_status
      FROM runs WHERE run_id=$1`, [runIdB]
   )).rows[0] ?? {};
+  if (runA.ingestion_status !== 'complete' || runB.ingestion_status !== 'complete') {
+    throw new Error('partial runs cannot be used for baseline comparisons; finish the run or inspect its single-run dashboard');
+  }
   const wsA = runA.workspace ?? '';
   const wsB = runB.workspace ?? '';
   const aTurns = await fetchTurns(local, runIdA);

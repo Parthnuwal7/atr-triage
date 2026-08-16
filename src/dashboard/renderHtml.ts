@@ -75,6 +75,7 @@ function barsOrNote(items: Array<{ label: string; value: number }>, note: string
 
 function detailBlock(t: TurnDetail): string {
   const trace = t.tool_trace == null ? '' : (typeof t.tool_trace === 'string' ? t.tool_trace : JSON.stringify(t.tool_trace, null, 2));
+  const artifacts = t.artifacts == null ? '' : (typeof t.artifacts === 'string' ? t.artifacts : JSON.stringify(t.artifacts, null, 2));
   const evalLine = t.expected_tool != null || t.tokens_total != null
     ? `<div class="d note">expected tool: <b>${esc(t.expected_tool ?? '—')}</b> · called: <b>${esc(t.tool_called ?? '—')}</b>` +
       ` · steps ${t.steps ?? '—'} · tokens ${t.tokens_total ?? '—'} · cost ${t.cost_usd == null ? '—' : '$' + t.cost_usd}` +
@@ -88,6 +89,7 @@ function detailBlock(t: TurnDetail): string {
     t.workspace_memory ? `<div class="d"><b>Workspace memory</b> <span class="mn">(current, not point-in-time)</span><pre>${esc(t.workspace_memory)}</pre></div>` : '',
     t.conversation_memory ? `<div class="d"><b>Conversation memory</b><pre>${esc(t.conversation_memory)}</pre></div>` : '',
     trace ? `<div class="d"><b>Tool trace</b><pre>${esc(trace)}</pre></div>` : `<div class="d note">no tool trace recorded (historical turn)</div>`,
+    artifacts ? `<div class="d"><b>Visual artifacts and validation</b><pre>${esc(artifacts)}</pre></div>` : '',
     `<div class="d note">signals: ${esc(signalList(t))}</div>`,
   ];
   return parts.filter(Boolean).join('');
@@ -357,6 +359,7 @@ export function renderDashboardHtml(m: AnalysisModel): string {
  code{background:#f0f0f0;padding:1px 4px;border-radius:3px;font-size:11px}
 </style></head><body>
  <h1>ARIA Triage — ${esc(m.workspace)}</h1>
+ ${m.ingestionStatus === 'partial' ? `<div class="gate gate-none">PARTIAL RUN — captured ${m.total} of ${m.expectedCases ?? '?'} planned cases. Preserved for diagnosis; excluded from baseline comparisons.</div>` : ''}
  ${gateSection(m.gate)}
  ${insightsSection(m.insightsMd)}
  <div class="note">Window ${esc(m.fromDate)} → ${esc(m.toDate)} · ${m.total} turns · ${m.downvotes} downvoted · run ${esc(m.runId)}</div>

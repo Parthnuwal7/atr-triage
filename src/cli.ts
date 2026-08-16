@@ -10,6 +10,11 @@ import { runJudgeCsv } from './judgeCsv/judgeCsvCommand.js';
 import { runAssert } from './triage/assertCommand.js';
 import { persistExperimentPlan, runPlanBenchmark } from './benchmark/planCommand.js';
 import { runJudgeBundle, runImportBundleJudgments } from './judgeCsv/judgeBundle.js';
+import {
+  buildCodexReviewBundle,
+  importCodexJudgments,
+  runCodexJudge,
+} from './codexJudge/codexJudge.js';
 
 function flag(name: string, def = ''): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -47,6 +52,36 @@ async function main() {
     case 'ingest-eval': {
       const res = await runIngestEval(cfg, flag('jsonl'));
       console.log(`✓ ${res.duplicate ? 'reused' : 'ingested'} ${res.ingested} eval cases · ${res.status} run ${res.runId}`); break;
+    }
+    case 'codex-bundle': {
+      const res = await buildCodexReviewBundle(
+        cfg,
+        flag('run'),
+        flag('out'),
+        Number(flag('batch-size', '8')),
+        flag('prompt-version', 'aria-codex-judge-v1')
+      );
+      console.log(`✓ wrote ${res.cases} compact cases in ${res.batches} batches → ${res.manifestPath}`);
+      break;
+    }
+    case 'judge-codex': {
+      const res = runCodexJudge(flag('manifest'), {
+        codexBin: flag('codex-bin') || undefined,
+        model: flag('model') || undefined,
+        dryRun: has('dry-run'),
+      });
+      console.log(`✓ Codex batches complete=${res.completed} resumed=${res.skipped} total=${res.batches}`);
+      break;
+    }
+    case 'import-codex': {
+      const res = await importCodexJudgments(
+        cfg,
+        flag('manifest'),
+        flag('judge', 'codex-aria-v1'),
+        flag('model', 'codex')
+      );
+      console.log(`✓ imported ${res.imported} causal judgments · ${res.reviews} queued for review`);
+      break;
     }
     case 'plan-benchmark': {
       const approaches = flag('approaches').split(',').map(v => v.trim()).filter(Boolean);
@@ -119,7 +154,7 @@ async function main() {
       break;
     }
     default:
-      console.error('usage: atr-triage migrate|extract|ingest-eval|plan-benchmark|judge-csv|judge-bundle|import|import-bundle|import-insights|assert|dashboard|golden|ui');
+      console.error('usage: atr-triage migrate|extract|ingest-eval|plan-benchmark|judge-csv|judge-bundle|codex-bundle|judge-codex|import-codex|import|import-bundle|import-insights|assert|dashboard|golden|ui');
       process.exit(1);
   }
 }

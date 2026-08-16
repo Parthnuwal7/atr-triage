@@ -147,6 +147,24 @@ The import is all-or-nothing: missing, duplicate, invented, or invalid rows reje
 file. Re-run with another `--judge` to measure disagreement. Low-confidence, insufficient-
 evidence, and disagreeing responses are queued in `judgment_reviews`.
 
+### Automated Codex causal judging
+
+For a pure baseline ARIA run, use compact, blinded JSON batches rather than sending the raw SSE log:
+
+```bash
+pnpm triage codex-bundle --run <runId> --out reports/<runId>-codex --batch-size 8
+pnpm triage judge-codex --manifest reports/<runId>-codex/manifest.json
+pnpm triage import-codex \
+  --manifest reports/<runId>-codex/manifest.json \
+  --judge codex-aria-v1
+```
+
+The Codex process is ephemeral, read-only, ignores workspace user config/rules, and receives an allowlisted environment that excludes application database URLs. Each case retains compact tool results, retry paths, visual contracts/payloads, deterministic hypotheses, and correlated backend events. Prompt, schema, bundle, and per-case evidence hashes make the result auditable. Completed batches validate and skip on rerun, which keeps the 285-case workflow resumable.
+
+The importer is transactional and requires exactly one matching blind id and evidence digest per case. It persists the first observable failure stage, failed component, process error, causal evidence, likely root cause, fix layer, deterministic relation, and fixture-issue flag. Thin evidence, low confidence, fixture/deterministic conflicts, and unknown root causes are queued in `judgment_reviews`.
+
+Use `judge-codex --dry-run` to validate a manifest without invoking Codex. `--model` is optional; specify it only when the benchmark protocol deliberately pins the judge model.
+
 ## Commands
 
 | Command | Purpose |
@@ -158,6 +176,9 @@ evidence, and disagreeing responses are queued in `judgment_reviews`.
 | `judge-csv --run <runId> --out <csv>` | Emit the CSV to hand to the judge |
 | `judge-bundle --runs <a,b> --prompt-version <v> --out <dir>` | Emit a blinded multi-arm Cursor review bundle |
 | `import-bundle --manifest <json> --judgments <csv> --judge <id>` | Strictly import structured judgments and queue disagreements |
+| `codex-bundle --run <runId> --out <dir> [--batch-size N]` | Emit compact, blinded and hashed ARIA review batches |
+| `judge-codex --manifest <json> [--model <id>] [--dry-run]` | Run/resume read-only ephemeral Codex judging |
+| `import-codex --manifest <json> --judge <id>` | Strictly import causal judgments and queue uncertain cases |
 | `assert --run <runId> --expectations <json>` | Fail-closed deterministic gate; eval runs require a valid expectations policy |
 | `import --csv <judged.csv> [--run <runId>]` | Load verdicts (`--run` attributes a compact CSV) |
 | `dashboard --run <runId> [--name <name>]` | Versioned HTML → `dashboards/` |

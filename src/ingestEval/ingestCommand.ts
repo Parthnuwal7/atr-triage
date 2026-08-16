@@ -112,7 +112,7 @@ export function parseEvalJsonl(text: string): { meta: EvalMeta; cases: EvalCaseR
         total_time_ms: obj.total_time_ms == null ? null : Number(obj.total_time_ms),
         accuracy_score: obj.accuracy_score == null ? null : Number(obj.accuracy_score),
         overall_score: obj.overall_score == null ? null : Number(obj.overall_score),
-        trace: obj.trace ?? null,
+        trace: obj.trace ?? obj.process_trace ?? null,
         clarified: obj.clarified === true,
         clarify_rounds: obj.clarify_rounds == null ? null : Number(obj.clarify_rounds),
         ttfb_ms: obj.ttfb_ms == null ? null : Number(obj.ttfb_ms),

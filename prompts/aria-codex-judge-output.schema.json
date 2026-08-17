@@ -2,51 +2,192 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "judgments"],
+  "required": [
+    "schema",
+    "judgments"
+  ],
   "properties": {
-    "schema": { "const": "aria-codex-judgments/v1" },
+    "schema": {
+      "const": "aria-codex-judgments/v1",
+      "type": "string"
+    },
     "judgments": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "blind_id", "evidence_digest", "verdict", "category", "severity",
-          "failure_stage", "failed_component", "process_error", "causal_evidence",
-          "likely_root_cause", "fix_layer", "rationale", "dimensions", "confidence",
-          "evidence_sufficiency", "fixture_issue", "deterministic_relation", "reviewer_notes"
+          "blind_id",
+          "evidence_digest",
+          "verdict",
+          "category",
+          "severity",
+          "failure_stage",
+          "failed_component",
+          "process_error",
+          "causal_evidence",
+          "likely_root_cause",
+          "fix_layer",
+          "rationale",
+          "dimensions",
+          "confidence",
+          "evidence_sufficiency",
+          "fixture_issue",
+          "deterministic_relation",
+          "reviewer_notes"
         ],
         "properties": {
-          "blind_id": { "type": "string", "minLength": 1 },
-          "evidence_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-          "verdict": { "enum": ["good", "needs-work", "broken", "insufficient-evidence"] },
-          "category": { "type": "string" },
-          "severity": { "enum": ["low", "med", "high"] },
-          "failure_stage": { "enum": ["request", "model-routing", "planning", "tool-selection", "tool-execution", "data-retrieval", "visual-generation", "visual-data-binding", "answer-synthesis", "streaming", "stability", "none", "unknown"] },
-          "failed_component": { "type": "string" },
-          "process_error": { "type": "string" },
-          "causal_evidence": { "type": "array", "items": { "type": "string" }, "maxItems": 8 },
-          "likely_root_cause": { "type": "string" },
-          "fix_layer": { "enum": ["routing", "planner", "tool", "data", "visualization", "synthesis", "infra", "none", "unknown"] },
-          "rationale": { "type": "string", "minLength": 1 },
+          "blind_id": {
+            "type": "string"
+          },
+          "evidence_digest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "verdict": {
+            "enum": [
+              "good",
+              "needs-work",
+              "broken",
+              "insufficient-evidence"
+            ],
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "low",
+              "med",
+              "high"
+            ],
+            "type": "string"
+          },
+          "failure_stage": {
+            "enum": [
+              "request",
+              "model-routing",
+              "planning",
+              "tool-selection",
+              "tool-execution",
+              "data-retrieval",
+              "visual-generation",
+              "visual-data-binding",
+              "answer-synthesis",
+              "streaming",
+              "stability",
+              "none",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "failed_component": {
+            "type": "string"
+          },
+          "process_error": {
+            "type": "string"
+          },
+          "causal_evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8
+          },
+          "likely_root_cause": {
+            "type": "string"
+          },
+          "fix_layer": {
+            "enum": [
+              "routing",
+              "planner",
+              "tool",
+              "data",
+              "visualization",
+              "synthesis",
+              "infra",
+              "none",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          },
           "dimensions": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["correctness", "grounding", "relevance", "scope", "chartChoice", "usefulness"],
+            "required": [
+              "correctness",
+              "grounding",
+              "relevance",
+              "scope",
+              "chartChoice",
+              "usefulness"
+            ],
             "properties": {
-              "correctness": { "type": "integer", "minimum": 0, "maximum": 4 },
-              "grounding": { "type": "integer", "minimum": 0, "maximum": 4 },
-              "relevance": { "type": "integer", "minimum": 0, "maximum": 4 },
-              "scope": { "type": "integer", "minimum": 0, "maximum": 4 },
-              "chartChoice": { "type": "integer", "minimum": 0, "maximum": 4 },
-              "usefulness": { "type": "integer", "minimum": 0, "maximum": 4 }
+              "correctness": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              },
+              "grounding": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              },
+              "relevance": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              },
+              "scope": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              },
+              "chartChoice": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              },
+              "usefulness": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4
+              }
             }
           },
-          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-          "evidence_sufficiency": { "enum": ["sufficient", "partial", "missing", "contradictory"] },
-          "fixture_issue": { "type": "boolean" },
-          "deterministic_relation": { "enum": ["agrees", "overrides", "not-applicable", "uncertain"] },
-          "reviewer_notes": { "type": "string" }
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "evidence_sufficiency": {
+            "enum": [
+              "sufficient",
+              "partial",
+              "missing",
+              "contradictory"
+            ],
+            "type": "string"
+          },
+          "fixture_issue": {
+            "type": "boolean"
+          },
+          "deterministic_relation": {
+            "enum": [
+              "agrees",
+              "overrides",
+              "not-applicable",
+              "uncertain"
+            ],
+            "type": "string"
+          },
+          "reviewer_notes": {
+            "type": "string"
+          }
         }
       }
     }

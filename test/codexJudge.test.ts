@@ -30,6 +30,26 @@ describe('compact Codex ARIA judging', () => {
     expect(env).not.toHaveProperty('LOCAL_DATABASE_URL');
   });
 
+  it('uses a strict Structured Outputs-compatible judgment schema', () => {
+    const schema = JSON.parse(readFileSync(join(process.cwd(), 'prompts/aria-codex-judge-output.schema.json'), 'utf8'));
+    const visit = (node: any): void => {
+      if (!node || typeof node !== 'object') return;
+      if (node.properties) {
+        expect(node.type).toBe('object');
+        expect(node.additionalProperties).toBe(false);
+        expect(new Set(node.required)).toEqual(new Set(Object.keys(node.properties)));
+        for (const property of Object.values<any>(node.properties)) {
+          expect(property.type || property.anyOf || property.$ref).toBeTruthy();
+        }
+      }
+      if (node.items) visit(node.items);
+      if (node.properties) Object.values(node.properties).forEach(visit);
+      if (node.anyOf) node.anyOf.forEach(visit);
+    };
+    visit(schema);
+    expect(JSON.stringify(schema)).not.toContain('minLength');
+  });
+
   it('keeps causal and visual evidence while bounding noisy arrays', () => {
     const compacted = compactValue(Array.from({ length: 45 }, (_, index) => ({ index })));
     expect(compacted).toHaveLength(41);

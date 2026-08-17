@@ -88,6 +88,12 @@ function computeEvalMetrics(turns: TurnDetail[]): EvalMetrics | undefined {
     .sort((a, b) => b.broken - a.broken || b.total - a.total);
   const costs = turns.map(t => t.cost_usd).filter((n): n is number => n != null);
   return {
+    judgedTotal: turns.filter(t => ['good', 'needs-work', 'broken'].includes(t.verdict)).length,
+    goodTotal: turns.filter(t => t.verdict === 'good').length,
+    manualReviewTotal: turns.filter(t => t.review_status === 'pending').length,
+    deterministicPassed: turns.filter(t => t.accuracy_score === 100).length,
+    deterministicTotal: turns.filter(t => t.accuracy_score != null).length,
+    toolObserved: turns.filter(t => t.tool_called != null).length,
     toolTotal: withExpected.length,
     toolCorrect: withExpected.filter(t => toolMatches(t.expected_tool, t.tool_called)).length,
     avgTokens: mean(turns.map(t => t.tokens_total)),
@@ -118,6 +124,25 @@ export interface TurnDetail {
   category: string; // judge category (hallucination, etc.)
   severity: string;
   rationale: string;
+  /** Consensus verdict fields plus the latest individual causal judgment. */
+  confidence?: number | null;
+  failure_stage?: string | null;
+  failed_component?: string | null;
+  process_error?: string | null;
+  causal_evidence?: unknown;
+  likely_root_cause?: string | null;
+  fix_layer?: string | null;
+  evidence_sufficiency?: string | null;
+  fixture_issue?: boolean;
+  judge_verdict?: string | null;
+  judge_id?: string | null;
+  judge_model_id?: string | null;
+  deterministic_relation?: string | null;
+  reviewer_notes?: string | null;
+  review_status?: string | null;
+  review_reason?: string | null;
+  review_resolution?: string | null;
+  review_reviewer?: string | null;
   eval_category: string | null; // benchmark case category (Normal Lookup, Navigation, …)
   // eval/benchmark fields (null for recorded-log runs)
   expected_tool: string | null;
@@ -141,6 +166,12 @@ export interface TurnDetail {
 }
 
 export interface EvalMetrics {
+  judgedTotal: number;
+  goodTotal: number;
+  manualReviewTotal: number;
+  deterministicPassed: number;
+  deterministicTotal: number;
+  toolObserved: number;
   toolCorrect: number;
   toolTotal: number;
   avgTokens: number | null;
@@ -162,33 +193,65 @@ const VERDICT_COLORS: Record<string, string> = { good: '#2e7d32', 'needs-work': 
 
 /** Load every turn for a run with its verdict joined — shared by single-run and comparison paths. */
 export async function fetchTurns(local: LocalDb, runId: string): Promise<TurnDetail[]> {
-  return (await local.query<TurnDetail>(
-    `SELECT t.message_id, t.user_query, t.answer_text,
-            COALESCE(t.workspace_memory,'') workspace_memory,
-            COALESCE(t.conversation_memory,'') conversation_memory,
-            t.tool_trace, t.artifacts, t.provenance, t.downvoted,
-            t.signal_no_tool_call, t.signal_tool_error, t.signal_empty_or_refusal,
-            t.signal_no_response, t.signal_latency_outlier,
-            COALESCE(v.verdict,'(unjudged)') verdict, COALESCE(v.category,'') category,
-            COALESCE(v.severity,'') severity, COALESCE(v.rationale,'') rationale,
-            t.category eval_category,
-            t.expected_tool, t.tool_called, t.tokens_total, t.cost_usd,
-            t.steps, t.total_time_ms, t.accuracy_score,
-            t.case_id, t.attempt_index, t.evidence_status, t.model_id,
-            t.expected_contract_version, t.assertion_schema_version, t.assertion_outcome,
-            t.measurement_eligible,
-            COALESCE(v.judge_count,0)::int judge_count, COALESCE(v.disagreement,false) disagreement,
-            (SELECT jsonb_object_agg(ds.key, ds.avg_score) FROM (
-               SELECT e.key, avg((e.value)::numeric)::float avg_score
-               FROM judgments j CROSS JOIN LATERAL jsonb_each_text(j.dimensions) e
-               WHERE j.run_id=t.run_id AND j.message_id=t.message_id
-               GROUP BY e.key
-             ) ds) dimension_scores
-     FROM turns t LEFT JOIN verdicts v USING (run_id, message_id)
-     WHERE t.run_id=$1
-     ORDER BY CASE COALESCE(v.verdict,'')
-                WHEN 'broken' THEN 0 WHEN 'needs-work' THEN 1 WHEN 'good' THEN 2 ELSE 3 END,
-              t.created_at`, [runId])).rows;
+  const turns: TurnDetail[] = [];
+  const pageSize = 16;
+  for (let offset = 0; ; offset += pageSize) {
+    const page = (await local.query<TurnDetail>(
+      `SELECT t.message_id, t.user_query, t.answer_text,
+              COALESCE(t.workspace_memory,'') workspace_memory,
+              COALESCE(t.conversation_memory,'') conversation_memory,
+              t.tool_trace, t.artifacts, t.provenance, t.downvoted,
+              t.signal_no_tool_call, t.signal_tool_error, t.signal_empty_or_refusal,
+              t.signal_no_response, t.signal_latency_outlier,
+              COALESCE(v.verdict,'(unjudged)') verdict, COALESCE(v.category,'') category,
+              COALESCE(v.severity,'') severity, COALESCE(v.rationale,'') rationale,
+              v.confidence, v.failure_stage, v.failed_component, v.process_error,
+              j.causal_evidence, v.likely_root_cause, v.fix_layer,
+              v.evidence_sufficiency, COALESCE(v.fixture_issue,false) fixture_issue,
+              j.verdict judge_verdict, j.judge_id, j.model_id judge_model_id,
+              j.deterministic_relation,
+              COALESCE(j.judge_metadata->>'reviewer_notes','') reviewer_notes,
+              jr.status review_status, jr.reason review_reason,
+              jr.resolution review_resolution, jr.reviewer review_reviewer,
+              t.category eval_category,
+              t.expected_tool, t.tool_called, t.tokens_total, t.cost_usd,
+              t.steps, t.total_time_ms, t.accuracy_score,
+              t.case_id, t.attempt_index, t.evidence_status, t.model_id,
+              t.expected_contract_version, t.assertion_schema_version, t.assertion_outcome,
+              t.measurement_eligible,
+              COALESCE(v.judge_count,0)::int judge_count, COALESCE(v.disagreement,false) disagreement,
+              (SELECT jsonb_object_agg(ds.key, ds.avg_score) FROM (
+                 SELECT e.key, avg((e.value)::numeric)::float avg_score
+                 FROM judgments j CROSS JOIN LATERAL jsonb_each_text(j.dimensions) e
+                 WHERE j.run_id=t.run_id AND j.message_id=t.message_id
+                 GROUP BY e.key
+               ) ds) dimension_scores
+       FROM turns t
+       LEFT JOIN verdicts v USING (run_id, message_id)
+       LEFT JOIN LATERAL (
+         SELECT verdict, judge_id, model_id, causal_evidence, deterministic_relation,
+                judge_metadata, judged_at
+         FROM judgments
+         WHERE run_id=t.run_id AND message_id=t.message_id
+         ORDER BY judged_at DESC, judge_id
+         LIMIT 1
+       ) j ON true
+       LEFT JOIN LATERAL (
+         SELECT status, reason, resolution, reviewer, created_at
+         FROM judgment_reviews
+         WHERE run_id=t.run_id AND message_id=t.message_id
+         ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END, created_at DESC
+         LIMIT 1
+       ) jr ON true
+       WHERE t.run_id=$1
+       ORDER BY CASE COALESCE(v.verdict,'')
+                  WHEN 'broken' THEN 0 WHEN 'needs-work' THEN 1 WHEN 'good' THEN 2 ELSE 3 END,
+                t.created_at, t.message_id
+       LIMIT $2 OFFSET $3`, [runId, pageSize, offset])).rows;
+    turns.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return turns;
 }
 
 export async function loadAnalysis(local: LocalDb, runId: string): Promise<AnalysisModel> {

@@ -21,6 +21,7 @@ export async function runDashboard(
   compareRunId?: string
 ): Promise<{ htmlPath: string; jsonPath: string }> {
   const local = getLocalPool(cfg);
+  let operationError: unknown = null;
   try {
     const dir = join(process.cwd(), 'dashboards');
     mkdirSync(dir, { recursive: true });
@@ -56,7 +57,14 @@ export async function runDashboard(
       [runId, fileName, htmlPath, digest(model)]
     );
     return { htmlPath, jsonPath };
+  } catch (error) {
+    operationError = error;
+    throw error;
   } finally {
-    await local.end();
+    try {
+      await local.end();
+    } catch (closeError) {
+      if (operationError == null) throw closeError;
+    }
   }
 }

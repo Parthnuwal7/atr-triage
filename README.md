@@ -165,6 +165,14 @@ The importer is transactional and requires exactly one matching blind id and evi
 
 Use `judge-codex --dry-run` to validate a manifest without invoking Codex. `--model` is optional; specify it only when the benchmark protocol deliberately pins the judge model.
 
+After importing judgments, generate the auditable per-query and per-tool review files:
+
+```bash
+node scripts/build-aria-baseline-review.mjs reports/<run>-codex
+```
+
+This writes `baseline-review/case-review.csv`, `tool-trace-summary.csv`, and `baseline-summary.json`. A successful tool call only means execution succeeded; the case verdict still determines whether selection, scope, data use, and synthesis were correct.
+
 ## Commands
 
 | Command | Purpose |

@@ -249,20 +249,34 @@ export async function buildCodexReviewBundle(
     throw new Error('batch size must be an integer from 1 to 25');
   }
   const local = getLocalPool(cfg);
+  let operationError: unknown = null;
   try {
-    const result = await local.query<ReviewTurn>(
-      `SELECT run_id, message_id, case_id, category, user_query, answer_text, tool_trace,
-              trace, artifacts, evidence_status, total_time_ms, ttfb_ms, model_id, attempt_index
-       FROM turns WHERE run_id=$1 ORDER BY message_id`,
-      [runId]
-    );
-    if (!result.rows.length) throw new Error(`run ${runId} has no turns`);
-
     const batchId = randomUUID();
-    const cases = result.rows.map(turn => {
-      const blindId = `aria-${digest(`${batchId}:${turn.message_id}`).slice(0, 16)}`;
-      return { turn, review: buildCompactReviewCase(turn, blindId) };
-    });
+    const cases: Array<{ turn: ReviewTurn; review: CodexReviewCase }> = [];
+    const readPageSize = 16;
+    let afterMessageId: string | null = null;
+    for (;;) {
+      const result = afterMessageId == null
+        ? await local.query<ReviewTurn>(
+          `SELECT run_id, message_id, case_id, category, user_query, answer_text, tool_trace,
+                  trace, artifacts, evidence_status, total_time_ms, ttfb_ms, model_id, attempt_index
+           FROM turns WHERE run_id=$1 ORDER BY message_id LIMIT $2`,
+          [runId, readPageSize]
+        )
+        : await local.query<ReviewTurn>(
+          `SELECT run_id, message_id, case_id, category, user_query, answer_text, tool_trace,
+                  trace, artifacts, evidence_status, total_time_ms, ttfb_ms, model_id, attempt_index
+           FROM turns WHERE run_id=$1 AND message_id>$2 ORDER BY message_id LIMIT $3`,
+          [runId, afterMessageId, readPageSize]
+        );
+      if (!result.rows.length) break;
+      for (const turn of result.rows) {
+        const blindId = `aria-${digest(`${batchId}:${turn.message_id}`).slice(0, 16)}`;
+        cases.push({ turn, review: buildCompactReviewCase(turn, blindId) });
+      }
+      afterMessageId = result.rows.at(-1)!.message_id;
+    }
+    if (!cases.length) throw new Error(`run ${runId} has no turns`);
     mkdirSync(join(outDir, 'batches'), { recursive: true });
     mkdirSync(join(outDir, 'judgments'), { recursive: true });
     copyFileSync(DEFAULT_PROMPT, join(outDir, 'prompt.md'));
@@ -312,8 +326,17 @@ export async function buildCodexReviewBundle(
       [batchId, runId, promptVersion, manifest.evidence_bundle_digest, JSON.stringify(mapping), cases.length]
     );
     return { manifestPath, cases: cases.length, batches: Math.ceil(cases.length / batchSize) };
+  } catch (error) {
+    operationError = error;
+    throw error;
   } finally {
-    await local.end();
+    try {
+      await local.end();
+    } catch (closeError) {
+      // A failed PGlite operation can corrupt its WASM instance, making close() fail too.
+      // Preserve the original actionable error instead of replacing it with a shutdown error.
+      if (operationError == null) throw closeError;
+    }
   }
 }
 

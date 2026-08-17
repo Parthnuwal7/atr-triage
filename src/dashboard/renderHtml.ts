@@ -26,26 +26,37 @@ function insightsSection(md: string | undefined): string {
 }
 
 function evalSection(m: EvalMetrics): string {
-  const pct = m.toolTotal ? Math.round((100 * m.toolCorrect) / m.toolTotal) : null;
+  const total = m.byCategory.reduce((sum, row) => sum + row.total, 0);
+  const judgePass = m.judgedTotal ? Math.round((100 * m.goodTotal) / m.judgedTotal) : null;
+  const judgeCoverage = total ? Math.round((100 * m.judgedTotal) / total) : null;
+  const deterministicPct = m.deterministicTotal
+    ? Math.round((100 * m.deterministicPassed) / m.deterministicTotal)
+    : null;
+  const toolPct = m.toolTotal ? Math.round((100 * m.toolCorrect) / m.toolTotal) : null;
   const stat = (label: string, val: string) => `<div class="stat"><div class="sv">${val}</div><div class="sl">${label}</div></div>`;
   const cards = [
-    stat('Tool-call correct', pct == null ? '—' : `${pct}% <span class="mn">(${m.toolCorrect}/${m.toolTotal})</span>`),
-    stat('Avg auto-accuracy', m.avgAccuracy == null ? '—' : `${m.avgAccuracy}/100`),
-    stat('Avg tokens', m.avgTokens == null ? '—' : String(m.avgTokens)),
-    stat('Total cost', m.totalCost == null ? '—' : `$${m.totalCost.toFixed(4)}`),
-    stat('Avg steps', m.avgSteps == null ? '—' : String(m.avgSteps)),
-    stat('Avg latency', m.avgLatencyMs == null ? '—' : `${(m.avgLatencyMs / 1000).toFixed(1)}s`),
+    stat('Judge pass rate', judgePass == null ? 'Not judged' : `${judgePass}% <span class="mn">(${m.goodTotal}/${m.judgedTotal})</span>`),
+    stat('Judge coverage', judgeCoverage == null ? 'Not judged' : `${judgeCoverage}% <span class="mn">(${m.judgedTotal}/${total})</span>`),
+    stat('Manual review', `${m.manualReviewTotal} <span class="mn">flagged</span>`),
+    stat('Deterministic accuracy', deterministicPct == null ? 'Not asserted' : `${deterministicPct}% <span class="mn">(${m.deterministicPassed}/${m.deterministicTotal})</span>`),
+    stat('Tool observed', `${m.toolObserved}/${total}`),
+    stat('Expected-tool match', toolPct == null ? 'Not specified' : `${toolPct}% <span class="mn">(${m.toolCorrect}/${m.toolTotal})</span>`),
+    stat('Avg tokens', m.avgTokens == null ? 'Not logged' : String(m.avgTokens)),
+    stat('Total cost', m.totalCost == null ? 'Not logged' : `$${m.totalCost.toFixed(4)}`),
+    stat('Avg steps', m.avgSteps == null ? 'Not logged' : String(m.avgSteps)),
+    stat('Avg latency', m.avgLatencyMs == null ? 'Not logged' : `${(m.avgLatencyMs / 1000).toFixed(1)}s`),
   ].join('');
   const rows = m.byCategory.map(c => {
     const bad = c.total ? Math.round((100 * (c.broken + c.needsWork)) / c.total) : 0;
     return `<tr><td>${esc(c.category)}</td><td>${c.total}</td><td class="v-broken-t">${c.broken}</td>` +
       `<td class="v-needs-t">${c.needsWork}</td><td class="v-good-t">${c.good}</td>` +
-      `<td>${c.avgAccuracy == null ? '—' : c.avgAccuracy}</td><td>${bad}%</td></tr>`;
+      `<td>${c.avgAccuracy == null ? 'Not asserted' : c.avgAccuracy}</td><td>${bad}%</td></tr>`;
   }).join('');
   return `<h2>Benchmark metrics</h2>
     <div class="stats">${cards}</div>
+    <div class="note">Judge metrics cover every applicable case. Deterministic accuracy only covers cases with machine-checkable assertions.</div>
     <h2>Where it performs well vs. poorly (by category)</h2>
-    <table><thead><tr><th>Category</th><th>Total</th><th>Broken</th><th>Needs-work</th><th>Good</th><th>Avg acc</th><th>% not-good</th></tr></thead>
+    <table><thead><tr><th>Category</th><th>Total</th><th>Broken</th><th>Needs-work</th><th>Good</th><th>Deterministic avg</th><th>% not-good</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
 
@@ -73,22 +84,54 @@ function barsOrNote(items: Array<{ label: string; value: number }>, note: string
   return items.length ? renderBars(items, color) : `<div class="note">${note}</div>`;
 }
 
+function toolNames(t: TurnDetail): string[] {
+  if (!Array.isArray(t.tool_trace)) return [];
+  return [...new Set(t.tool_trace
+    .map((call: any) => call?.name ?? call?.toolName ?? call?.tool_name)
+    .filter((name: unknown): name is string => typeof name === 'string' && !!name))];
+}
+
 function detailBlock(t: TurnDetail): string {
   const trace = t.tool_trace == null ? '' : (typeof t.tool_trace === 'string' ? t.tool_trace : JSON.stringify(t.tool_trace, null, 2));
   const artifacts = t.artifacts == null ? '' : (typeof t.artifacts === 'string' ? t.artifacts : JSON.stringify(t.artifacts, null, 2));
-  const evalLine = t.expected_tool != null || t.tokens_total != null
-    ? `<div class="d note">expected tool: <b>${esc(t.expected_tool ?? '—')}</b> · called: <b>${esc(t.tool_called ?? '—')}</b>` +
-      ` · steps ${t.steps ?? '—'} · tokens ${t.tokens_total ?? '—'} · cost ${t.cost_usd == null ? '—' : '$' + t.cost_usd}` +
-      ` · ${t.total_time_ms == null ? '—' : (t.total_time_ms / 1000).toFixed(1) + 's'} · auto-acc ${t.accuracy_score ?? '—'}</div>`
+  const causalEvidence = t.causal_evidence == null ? '' : (typeof t.causal_evidence === 'string' ? t.causal_evidence : JSON.stringify(t.causal_evidence, null, 2));
+  const evalLine = `<div class="d note">case: <b>${esc(t.case_id ?? t.message_id)}</b> · expected tool: <b>${esc(t.expected_tool ?? 'not specified')}</b> · called: <b>${esc(t.tool_called ?? (toolNames(t).join(', ') || 'none'))}</b>` +
+    ` · steps ${t.steps ?? 'not logged'} · tokens ${t.tokens_total ?? 'not logged'} · cost ${t.cost_usd == null ? 'not logged' : '$' + t.cost_usd}` +
+    ` · ${t.total_time_ms == null ? 'latency not logged' : (t.total_time_ms / 1000).toFixed(1) + 's'} · deterministic ${t.accuracy_score ?? 'not asserted'}</div>`;
+  const review = t.review_status
+    ? `<div class="d review-box"><b>Manual review: ${esc(t.review_status)}</b> · reason: ${esc(t.review_reason ?? 'unspecified')}` +
+      `${t.review_resolution ? `<div>resolution: ${esc(t.review_resolution)}</div>` : ''}` +
+      `${t.review_reviewer ? `<div>reviewer: ${esc(t.review_reviewer)}</div>` : ''}</div>`
+    : '';
+  const rawGrade = t.judge_verdict && t.judge_verdict !== t.verdict
+    ? ` · raw judge grade <b>${esc(t.judge_verdict)}</b> (normalized report verdict: <b>${esc(t.verdict)}</b>)`
+    : '';
+  const diagnosis = t.rationale || t.failure_stage || t.failed_component || t.likely_root_cause
+    ? `<div class="d"><b>Codex grade</b> — ${esc(t.verdict)} · ${esc(t.category)} / ${esc(t.severity)}` +
+      ` · confidence ${t.confidence == null ? 'not logged' : esc(t.confidence)}${rawGrade}` +
+      `<div class="rat">${esc(t.rationale)}</div>` +
+      `<table class="judge-tbl"><tbody>` +
+      `<tr><th>First failure stage</th><td>${esc(t.failure_stage ?? 'none')}</td></tr>` +
+      `<tr><th>Failed component</th><td>${esc(t.failed_component ?? 'none')}</td></tr>` +
+      `<tr><th>Process error</th><td>${esc(t.process_error || 'none')}</td></tr>` +
+      `<tr><th>Likely root cause</th><td>${esc(t.likely_root_cause || 'none')}</td></tr>` +
+      `<tr><th>Fix layer</th><td>${esc(t.fix_layer ?? 'none')}</td></tr>` +
+      `<tr><th>Evidence</th><td>${esc(t.evidence_sufficiency ?? 'not logged')}</td></tr>` +
+      `<tr><th>Deterministic relation</th><td>${esc(t.deterministic_relation ?? 'not applicable')}</td></tr>` +
+      `<tr><th>Fixture issue</th><td>${t.fixture_issue ? 'yes' : 'no'}</td></tr>` +
+      `<tr><th>Judge</th><td>${esc(t.judge_id ?? 'not logged')} / ${esc(t.judge_model_id ?? 'not logged')}</td></tr>` +
+      `</tbody></table>` +
+      `${causalEvidence ? `<div><b>Causal evidence</b><pre>${esc(causalEvidence)}</pre></div>` : ''}` +
+      `${t.reviewer_notes ? `<div><b>Judge notes</b><pre>${esc(t.reviewer_notes)}</pre></div>` : ''}</div>`
     : '';
   const parts = [
     `<div class="d note">message_id: <code>${esc(t.message_id)}</code> — curate with: <code>pnpm triage golden add --run &lt;runId&gt; --message ${esc(t.message_id)}</code></div>`,
-    evalLine,
+    evalLine, review,
     `<div class="d"><b>Answer</b><pre>${esc(t.answer_text)}</pre></div>`,
-    t.rationale ? `<div class="d"><b>Judge</b> — ${esc(t.category)} / ${esc(t.severity)}<div class="rat">${esc(t.rationale)}</div></div>` : '',
+    diagnosis,
     t.workspace_memory ? `<div class="d"><b>Workspace memory</b> <span class="mn">(current, not point-in-time)</span><pre>${esc(t.workspace_memory)}</pre></div>` : '',
     t.conversation_memory ? `<div class="d"><b>Conversation memory</b><pre>${esc(t.conversation_memory)}</pre></div>` : '',
-    trace ? `<div class="d"><b>Tool trace</b><pre>${esc(trace)}</pre></div>` : `<div class="d note">no tool trace recorded (historical turn)</div>`,
+    trace ? `<div class="d"><b>Tool trace</b><pre>${esc(trace)}</pre></div>` : `<div class="d note">no tool called</div>`,
     artifacts ? `<div class="d"><b>Visual artifacts and validation</b><pre>${esc(artifacts)}</pre></div>` : '',
     `<div class="d note">signals: ${esc(signalList(t))}</div>`,
   ];
@@ -99,10 +142,14 @@ function turnRows(turns: TurnDetail[]): string {
   return turns.map(t => {
     const c = vClass(t.verdict);
     const q = esc(t.user_query).slice(0, 200) || '(empty)';
+    const tools = toolNames(t);
+    const review = t.review_status === 'pending' ? `<span class="review-flag">${esc(t.review_reason ?? 'review')}</span>` : '—';
     return (
-      `<tr class="turn ${c}" data-v="${esc(t.verdict)}"><td><span class="badge ${c}">${esc(t.verdict)}</span></td>` +
-      `<td>${esc(t.category)}</td><td>${esc(t.severity)}</td><td class="q">${q}</td></tr>` +
-      `<tr class="detail" hidden><td colspan="4">${detailBlock(t)}</td></tr>`
+      `<tr class="turn ${c}" data-v="${esc(t.verdict)}" data-review="${t.review_status === 'pending'}" data-fixture="${!!t.fixture_issue}">` +
+      `<td><span class="badge ${c}">${esc(t.verdict)}</span>${t.confidence == null ? '' : `<div class="mn">conf ${esc(t.confidence)}</div>`}</td>` +
+      `<td>${review}</td><td><code>${esc(t.case_id ?? t.message_id)}</code></td><td>${esc(t.eval_category ?? '(none)')}</td>` +
+      `<td>${esc(tools.join(', ') || 'none')}</td><td class="q">${q}</td></tr>` +
+      `<tr class="detail" hidden><td colspan="6">${detailBlock(t)}</td></tr>`
     );
   }).join('');
 }
@@ -110,13 +157,17 @@ function turnRows(turns: TurnDetail[]): string {
 function chips(m: AnalysisModel): string {
   const counts: Record<string, number> = {};
   for (const t of m.turns) counts[t.verdict] = (counts[t.verdict] || 0) + 1;
-  const order = ['all', 'broken', 'needs-work', 'good', '(unjudged)'];
-  return order
-    .filter(v => v === 'all' || counts[v])
-    .map(v => {
-      const n = v === 'all' ? m.turns.length : counts[v];
-      const on = v === 'all' ? ' on' : '';
-      return `<button class="chip${on}" data-filter="${esc(v)}">${esc(v)} <span class="n">${n}</span></button>`;
+  const filters = [
+    { key: 'all', label: 'all', count: m.turns.length },
+    { key: 'manual-review', label: 'manual review', count: m.turns.filter(t => t.review_status === 'pending').length },
+    { key: 'fixture-issue', label: 'fixture issue', count: m.turns.filter(t => t.fixture_issue).length },
+    ...['broken', 'needs-work', 'good', '(unjudged)'].map(key => ({ key, label: key, count: counts[key] || 0 })),
+  ];
+  return filters
+    .filter(item => item.key === 'all' || item.count > 0)
+    .map(item => {
+      const on = item.key === 'all' ? ' on' : '';
+      return `<button class="chip${on}" data-filter="${esc(item.key)}">${esc(item.label)} <span class="n">${item.count}</span></button>`;
     })
     .join('');
 }
@@ -350,6 +401,10 @@ export function renderDashboardHtml(m: AnalysisModel): string {
  .badge{padding:1px 8px;border-radius:10px;color:#fff;font-size:11px}
  .v-broken{background:#c62828} .v-needs-work{background:#f9a825} .v-good{background:#2e7d32} .v-unjudged{background:#607d8b}
  .badge.v-needs-work{color:#222}
+ .review-flag{display:inline-block;background:#5e35b1;color:#fff;border-radius:10px;padding:2px 7px;font-size:11px}
+ .review-box{border-left:4px solid #5e35b1;background:#f4f0fb;padding:8px 10px}
+ .judge-tbl{width:auto;min-width:70%;margin:8px 0}
+ .judge-tbl th{width:160px}
  td .d{margin:6px 0} td .d b{font-size:12px} td pre{white-space:pre-wrap;background:#f7f7f7;padding:8px;border-radius:4px;margin:4px 0;max-height:340px;overflow:auto}
  td .rat{margin-top:2px}
  .stats{display:flex;gap:16px;flex-wrap:wrap;margin:8px 0}
@@ -375,7 +430,7 @@ export function renderDashboardHtml(m: AnalysisModel): string {
  ${m.evalMetrics ? evalSection(m.evalMetrics) : ''}
  <h2>Turns</h2>
  <div class="chips">${chips(m)}</div>
- <table><thead><tr><th>Verdict</th><th>Category</th><th>Severity</th><th>Query (click row for full detail)</th></tr></thead>
+ <table><thead><tr><th>Grade</th><th>Review</th><th>Case</th><th>Test category</th><th>Tools</th><th>Query (click row for full detail)</th></tr></thead>
  <tbody>${turnRows(m.turns)}</tbody></table>
 <script>
 (function(){
@@ -392,7 +447,10 @@ export function renderDashboardHtml(m: AnalysisModel): string {
       document.querySelectorAll('.chip').forEach(function(x){ x.classList.remove('on'); });
       b.classList.add('on');
       rows.forEach(function(r){
-        var show = (f === 'all') || (r.getAttribute('data-v') === f);
+        var show = (f === 'all') ||
+          (f === 'manual-review' && r.getAttribute('data-review') === 'true') ||
+          (f === 'fixture-issue' && r.getAttribute('data-fixture') === 'true') ||
+          (r.getAttribute('data-v') === f);
         r.hidden = !show;
         var d = r.nextElementSibling;
         if (d && d.classList.contains('detail') && !show) { d.hidden = true; r.classList.remove('open'); }

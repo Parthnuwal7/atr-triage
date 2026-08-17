@@ -57,6 +57,24 @@ describe('renderDashboardHtml', () => {
     expect(html).toContain('tr.turn');     // clickable-row styling/script
     expect(html).toContain('<script>');    // inline interactivity
   });
+  it('surfaces causal grades and manual-review flags per case', () => {
+    const judged: AnalysisModel = { ...model, turns: [turn({
+      case_id: 'LOOK-01', confidence: 0.65, failure_stage: 'tool-selection',
+      failed_component: 'card selection', likely_root_cause: 'wrong card', fix_layer: 'planner',
+      evidence_sufficiency: 'sufficient', causal_evidence: ['queryData used the wrong card'],
+      judge_verdict: 'broken', judge_id: 'codex-aria-v1', judge_model_id: 'codex',
+      deterministic_relation: 'agrees', review_status: 'pending', review_reason: 'low-confidence',
+    })] };
+    const html = renderDashboardHtml(judged);
+    expect(html).toContain('manual review');
+    expect(html).toContain('low-confidence');
+    expect(html).toContain('First failure stage');
+    expect(html).toContain('tool-selection');
+    expect(html).toContain('Likely root cause');
+    expect(html).toContain('queryData used the wrong card');
+    expect(html).toContain('data-review="true"');
+  });
+
   it('escapes HTML in turn text', () => {
     const evil: AnalysisModel = { ...model, turns: [turn({ user_query: '<script>x</script>', answer_text: '' })] };
     expect(renderDashboardHtml(evil)).not.toContain('<script>x</script>');
@@ -66,6 +84,8 @@ describe('renderDashboardHtml', () => {
     const evalModel: AnalysisModel = {
       ...model,
       evalMetrics: {
+        judgedTotal: 8, goodTotal: 6, manualReviewTotal: 2,
+        deterministicPassed: 7, deterministicTotal: 8, toolObserved: 7,
         toolCorrect: 8, toolTotal: 10, avgTokens: 1200, totalCost: 0.42, avgSteps: 1.4,
         avgLatencyMs: 3200, avgAccuracy: 86,
         byCategory: [{ category: 'Normal Lookup', total: 5, broken: 1, needsWork: 1, good: 3, avgAccuracy: 90 }],
@@ -73,7 +93,11 @@ describe('renderDashboardHtml', () => {
     };
     const html = renderDashboardHtml(evalModel);
     expect(html).toContain('Benchmark metrics');
-    expect(html).toContain('Tool-call correct');
+    expect(html).toContain('Judge pass rate');
+    expect(html).toContain('Judge coverage');
+    expect(html).toContain('Manual review');
+    expect(html).toContain('Deterministic accuracy');
+    expect(html).toContain('Expected-tool match');
     expect(html).toContain('80%'); // 8/10
     expect(html).toContain('Normal Lookup');
   });

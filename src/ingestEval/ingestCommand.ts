@@ -32,6 +32,7 @@ export interface EvalCaseRow {
   ttfb_ms: number | null;
   artifacts: unknown;
   provenance: unknown;
+  terminal_status: string | null;
 }
 
 export interface EvalMeta {
@@ -107,6 +108,7 @@ export function parseEvalJsonl(text: string): { meta: EvalMeta; cases: EvalCaseR
         steps: obj.steps == null ? null : Number(obj.steps),
         tokens_total: obj.tokens_total == null ? null : Number(obj.tokens_total),
         tokens_in: obj.tokens_in == null ? null : Number(obj.tokens_in),
+        terminal_status: (obj.terminal_status as string) ?? null,
         tokens_out: obj.tokens_out == null ? null : Number(obj.tokens_out),
         cost_usd: obj.cost_usd == null ? null : Number(obj.cost_usd),
         total_time_ms: obj.total_time_ms == null ? null : Number(obj.total_time_ms),
@@ -140,6 +142,23 @@ export function parseEvalJsonl(text: string): { meta: EvalMeta; cases: EvalCaseR
     keys.add(key);
   }
   return { meta, cases };
+}
+
+export function evalEvidenceStatus(c: Pick<
+  EvalCaseRow,
+  'terminal_status' | 'trace' | 'tool_calls' | 'artifacts' | 'output'
+>): 'sufficient' | 'partial' | 'missing' {
+  const visualEvidence = c.artifacts && typeof c.artifacts === 'object'
+    && Boolean((c.artifacts as { visual_artifacts?: { emitted?: boolean } }).visual_artifacts?.emitted);
+  const observableEvidence =
+    c.trace != null ||
+    (Array.isArray(c.tool_calls) && c.tool_calls.length > 0) ||
+    visualEvidence;
+  const hasOutput = c.output.trim().length > 0;
+  if (c.terminal_status && c.terminal_status !== 'completed') {
+    return observableEvidence || hasOutput ? 'partial' : 'missing';
+  }
+  return observableEvidence ? 'sufficient' : hasOutput ? 'partial' : 'missing';
 }
 
 export async function runIngestEval(
@@ -180,11 +199,7 @@ export async function runIngestEval(
       for (const c of cases) {
         const caseId = c.id ?? c.scenario_tag ?? `case-${c.index}`;
         const messageId = (baseCounts.get(caseId) ?? 0) > 1 ? caseId + '::' + c.model + '::r' + c.repeat_index : caseId;
-        const visualEvidence = c.artifacts && typeof c.artifacts === 'object'
-          && Boolean((c.artifacts as { visual_artifacts?: { emitted?: boolean } }).visual_artifacts?.emitted);
-        const evidenceStatus = c.trace != null || (Array.isArray(c.tool_calls) && c.tool_calls.length) || visualEvidence
-          ? 'sufficient'
-          : c.output.trim() ? 'partial' : 'missing';
+        const evidenceStatus = evalEvidenceStatus(c);
         await local.query(insertEvalTurnQuery, [
           runId, messageId, c.category || 'eval', meta.date, c.input, c.output,
           c.tool_calls == null ? null : JSON.stringify(c.tool_calls),

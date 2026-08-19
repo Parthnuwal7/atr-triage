@@ -84,11 +84,11 @@ describe('renderDashboardHtml', () => {
     const evalModel: AnalysisModel = {
       ...model,
       evalMetrics: {
-        judgedTotal: 8, goodTotal: 6, manualReviewTotal: 2,
+        judgedTotal: 8, goodTotal: 6, insufficientTotal: 1, manualReviewTotal: 2,
         deterministicPassed: 7, deterministicTotal: 8, toolObserved: 7,
         toolCorrect: 8, toolTotal: 10, avgTokens: 1200, totalCost: 0.42, avgSteps: 1.4,
         avgLatencyMs: 3200, avgAccuracy: 86,
-        byCategory: [{ category: 'Normal Lookup', total: 5, broken: 1, needsWork: 1, good: 3, avgAccuracy: 90 }],
+        byCategory: [{ category: 'Normal Lookup', total: 6, broken: 1, needsWork: 1, good: 3, insufficient: 1, avgAccuracy: 90 }],
       },
     };
     const html = renderDashboardHtml(evalModel);
@@ -100,6 +100,8 @@ describe('renderDashboardHtml', () => {
     expect(html).toContain('Expected-tool match');
     expect(html).toContain('80%'); // 8/10
     expect(html).toContain('Normal Lookup');
+    expect(html).toContain('Insufficient evidence');
+    expect(html).toContain('excluded from pass rate');
   });
 });
 

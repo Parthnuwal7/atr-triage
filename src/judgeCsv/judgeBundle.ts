@@ -174,7 +174,7 @@ export async function runImportBundleJudgments(
         const disagreement = labels.size > 1;
         const lowConfidence = all.rows.some(row => row.confidence != null && row.confidence < 0.7);
         const insufficient = all.rows.some(row => row.evidence_sufficiency !== 'sufficient' || row.verdict === 'insufficient-evidence');
-        const consensus = disagreement || insufficient ? 'needs-work' : j.verdict;
+        const consensus = insufficient ? 'insufficient-evidence' : disagreement ? 'needs-work' : j.verdict;
         await local.query(
           `INSERT INTO verdicts (run_id,message_id,verdict,category,severity,rationale,judge_count,disagreement,confidence)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)

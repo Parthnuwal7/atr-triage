@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseEvalJsonl } from '../src/ingestEval/ingestCommand.js';
+import { evalEvidenceStatus, parseEvalJsonl } from '../src/ingestEval/ingestCommand.js';
 
 const jsonl = [
   JSON.stringify({ kind: 'run_start', ts: '2026-07-23T10:00:00Z', clientId: 'ws1', models: ['gpt-oss-120b'], cases: 2 }),
@@ -66,5 +66,35 @@ describe('parseEvalJsonl', () => {
       JSON.stringify({ kind: 'case', index: 2, id: 'A', model: 'm', input: 'q2', output: 'a2' }),
     ].join('\n');
     expect(() => parseEvalJsonl(duplicate)).toThrow(/duplicate eval case/);
+  });
+
+  it('retains incomplete cases but never labels their evidence sufficient', () => {
+    const base = {
+      terminal_status: 'context_limit',
+      trace: { attempts: [] },
+      tool_calls: [{ name: 'queryData', status: 'ok' }],
+      artifacts: null,
+      output: 'A partial answer',
+    };
+    expect(evalEvidenceStatus(base)).toBe('partial');
+    expect(evalEvidenceStatus({
+      ...base,
+      trace: null,
+      tool_calls: null,
+      output: '',
+    })).toBe('missing');
+    expect(evalEvidenceStatus({
+      ...base,
+      terminal_status: 'completed',
+    })).toBe('sufficient');
+
+    const report = [
+      JSON.stringify({ kind: 'run_start', cases: 1 }),
+      JSON.stringify({
+        kind: 'case', index: 1, id: 'LIMIT-01', model: 'm',
+        input: 'q', output: 'partial', terminal_status: 'context_limit',
+      }),
+    ].join('\n');
+    expect(parseEvalJsonl(report).cases[0].terminal_status).toBe('context_limit');
   });
 });

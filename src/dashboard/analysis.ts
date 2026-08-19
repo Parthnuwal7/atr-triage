@@ -83,6 +83,7 @@ function computeEvalMetrics(turns: TurnDetail[]): EvalMetrics | undefined {
       broken: ts.filter(t => t.verdict === 'broken').length,
       needsWork: ts.filter(t => t.verdict === 'needs-work').length,
       good: ts.filter(t => t.verdict === 'good').length,
+      insufficient: ts.filter(t => t.verdict === 'insufficient-evidence').length,
       avgAccuracy: mean(ts.map(t => t.accuracy_score)),
     }))
     .sort((a, b) => b.broken - a.broken || b.total - a.total);
@@ -90,6 +91,7 @@ function computeEvalMetrics(turns: TurnDetail[]): EvalMetrics | undefined {
   return {
     judgedTotal: turns.filter(t => ['good', 'needs-work', 'broken'].includes(t.verdict)).length,
     goodTotal: turns.filter(t => t.verdict === 'good').length,
+    insufficientTotal: turns.filter(t => t.verdict === 'insufficient-evidence').length,
     manualReviewTotal: turns.filter(t => t.review_status === 'pending').length,
     deterministicPassed: turns.filter(t => t.accuracy_score === 100).length,
     deterministicTotal: turns.filter(t => t.accuracy_score != null).length,
@@ -168,6 +170,7 @@ export interface TurnDetail {
 export interface EvalMetrics {
   judgedTotal: number;
   goodTotal: number;
+  insufficientTotal: number;
   manualReviewTotal: number;
   deterministicPassed: number;
   deterministicTotal: number;
@@ -185,11 +188,17 @@ export interface EvalMetrics {
     broken: number;
     needsWork: number;
     good: number;
+    insufficient: number;
     avgAccuracy: number | null;
   }>;
 }
 
-const VERDICT_COLORS: Record<string, string> = { good: '#2e7d32', 'needs-work': '#f9a825', broken: '#c62828' };
+const VERDICT_COLORS: Record<string, string> = {
+  good: '#2e7d32',
+  'needs-work': '#f9a825',
+  broken: '#c62828',
+  'insufficient-evidence': '#607d8b',
+};
 
 /** Load every turn for a run with its verdict joined — shared by single-run and comparison paths. */
 export async function fetchTurns(local: LocalDb, runId: string): Promise<TurnDetail[]> {

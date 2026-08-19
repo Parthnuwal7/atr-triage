@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -15,7 +23,7 @@ import {
 import { normalizeJudgeAnswer } from '../judgeCsv/judgeBundle.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_PROMPT = resolve(HERE, '../../prompts/aria-codex-judge-v1.md');
+const DEFAULT_PROMPT = resolve(HERE, '../../prompts/aria-codex-judge-v2.md');
 const DEFAULT_SCHEMA = resolve(HERE, '../../prompts/aria-codex-judge-output.schema.json');
 
 const CODEX_ENV_KEYS = new Set([
@@ -67,6 +75,8 @@ interface ManifestTarget {
   evidence_digest: string;
   batch_file: string;
   output_file: string;
+  product_verdict_eligible?: boolean;
+  deterministic_passed?: boolean | null;
 }
 
 interface CodexManifest {
@@ -178,6 +188,11 @@ export function buildCompactReviewCase(turn: ReviewTurn, blindId: string): Codex
   const context = objectValue(artifacts.benchmark_context);
   const visualArtifacts = objectValue(artifacts.visual_artifacts);
   const processTrace = objectValue(context.process_trace ?? turn.trace);
+  const terminalStatus = typeof context.terminal_status === 'string' ? context.terminal_status : null;
+  const deterministicValidation = objectValue(context.deterministic_validation);
+  const deterministicPassed = typeof deterministicValidation.passed === 'boolean'
+    ? deterministicValidation.passed
+    : null;
   const payload = {
     schema: 'aria-codex-review-case/v1' as const,
     blind_id: blindId,
@@ -188,9 +203,16 @@ export function buildCompactReviewCase(turn: ReviewTurn, blindId: string): Codex
     rubric: context.rubric ?? null,
     expectations: context.expect_all ?? (context.expect ? [context.expect] : []),
     deterministic_validation: context.deterministic_validation ?? null,
+    evaluation_constraints: {
+      product_verdict_eligible: terminalStatus == null || terminalStatus === 'completed',
+      ineligible_reason: terminalStatus == null || terminalStatus === 'completed'
+        ? null
+        : `terminal_status:${terminalStatus}`,
+      deterministic_passed: deterministicPassed,
+    },
     failure_signal_hypotheses: context.failure_signals ?? [],
     execution: {
-      terminal_status: context.terminal_status ?? null,
+      terminal_status: terminalStatus,
       evidence_status: turn.evidence_status,
       model_id: turn.model_id,
       attempt_index: turn.attempt_index,
@@ -243,7 +265,7 @@ export async function buildCodexReviewBundle(
   runId: string,
   outDir: string,
   batchSize = 8,
-  promptVersion = 'aria-codex-judge-v1'
+  promptVersion = 'aria-codex-judge-v2'
 ): Promise<{ manifestPath: string; cases: number; batches: number }> {
   if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 25) {
     throw new Error('batch size must be an integer from 1 to 25');
@@ -290,12 +312,17 @@ export async function buildCodexReviewBundle(
       const batchCases = cases.slice(offset, offset + batchSize);
       writeFileSync(join(outDir, 'batches', batchName), `${JSON.stringify({ cases: batchCases.map(item => item.review) }, null, 2)}\n`);
       for (const item of batchCases) {
+        const constraints = objectValue(item.review.evaluation_constraints);
         mapping[item.review.blind_id] = {
           run_id: item.turn.run_id,
           message_id: item.turn.message_id,
           evidence_digest: item.review.evidence_digest,
           batch_file: join('batches', batchName),
           output_file: join('judgments', outputName),
+          product_verdict_eligible: constraints.product_verdict_eligible !== false,
+          deterministic_passed: typeof constraints.deterministic_passed === 'boolean'
+            ? constraints.deterministic_passed
+            : null,
         };
       }
     }
@@ -340,7 +367,11 @@ export async function buildCodexReviewBundle(
   }
 }
 
-function validateBatchOutput(judgments: CodexJudgment[], expected: ManifestTarget[], mapping: CodexManifest['mapping']): void {
+export function validateBatchOutput(
+  judgments: CodexJudgment[],
+  expected: ManifestTarget[],
+  mapping: CodexManifest['mapping']
+): void {
   if (judgments.length !== expected.length) throw new Error(`expected ${expected.length} judgments, received ${judgments.length}`);
   const expectedIds = new Set(Object.entries(mapping).filter(([, target]) => expected.includes(target)).map(([id]) => id));
   const seen = new Set<string>();
@@ -348,8 +379,15 @@ function validateBatchOutput(judgments: CodexJudgment[], expected: ManifestTarge
     if (!expectedIds.has(judgment.blind_id)) throw new Error(`unexpected blind_id ${judgment.blind_id}`);
     if (seen.has(judgment.blind_id)) throw new Error(`duplicate blind_id ${judgment.blind_id}`);
     seen.add(judgment.blind_id);
-    if (mapping[judgment.blind_id].evidence_digest !== judgment.evidence_digest) {
+    const target = mapping[judgment.blind_id];
+    if (target.evidence_digest !== judgment.evidence_digest) {
       throw new Error(`evidence digest mismatch for ${judgment.blind_id}`);
+    }
+    if (target.product_verdict_eligible === false && judgment.verdict !== 'insufficient-evidence') {
+      throw new Error(`incomplete case ${judgment.blind_id} must be insufficient-evidence`);
+    }
+    if (target.deterministic_passed === false && judgment.verdict === 'good' && !judgment.fixture_issue) {
+      throw new Error(`deterministic failure ${judgment.blind_id} cannot be good without fixture_issue`);
     }
     validateJudgment({
       messageId: mapping[judgment.blind_id].message_id,
@@ -366,8 +404,12 @@ function validateBatchOutput(judgments: CodexJudgment[], expected: ManifestTarge
 
 export function runCodexJudge(
   manifestPath: string,
-  options: { codexBin?: string; model?: string; dryRun?: boolean } = {}
+  options: { codexBin?: string; model?: string; dryRun?: boolean; timeoutMs?: number } = {}
 ): { completed: number; skipped: number; batches: number } {
+  const timeoutMs = options.timeoutMs ?? 600_000;
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 10_000 || timeoutMs > 3_600_000) {
+    throw new Error('Codex timeout must be an integer from 10000 to 3600000 milliseconds');
+  }
   const manifest = readManifest(manifestPath);
   const root = dirname(resolve(manifestPath));
   const promptPath = join(root, manifest.prompt_file);
@@ -394,9 +436,11 @@ export function runCodexJudge(
       }
     }
     if (options.dryRun) continue;
+    const temporaryOutputPath = `${outputPath}.tmp-${process.pid}`;
+    rmSync(temporaryOutputPath, { force: true });
     const args = [
       'exec', '--ephemeral', '--sandbox', 'read-only', '--ignore-user-config', '--ignore-rules',
-      '--json', '--output-schema', schemaPath, '-o', outputPath,
+      '--json', '--output-schema', schemaPath, '-o', temporaryOutputPath,
     ];
     if (options.model) args.push('--model', options.model);
     args.push('-');
@@ -405,12 +449,31 @@ export function runCodexJudge(
       cwd: root,
       env: codexJudgeEnvironment(),
       input,
+      timeout: timeoutMs,
+      killSignal: 'SIGTERM',
       encoding: 'utf8',
       maxBuffer: 16 * 1024 * 1024,
     });
-    if (result.error) throw result.error;
-    if (result.status !== 0) throw new Error(`Codex failed for ${batchFile}: ${(result.stderr || result.stdout).slice(-4000)}`);
-    validateBatchOutput(readJudgmentOutput(outputPath), targets, manifest.mapping);
+    if (result.error) {
+      rmSync(temporaryOutputPath, { force: true });
+      const code = (result.error as NodeJS.ErrnoException).code;
+      if (code === 'ETIMEDOUT') throw new Error(`Codex timed out for ${batchFile} after ${timeoutMs}ms`);
+      throw result.error;
+    }
+    if (result.status !== 0) {
+      rmSync(temporaryOutputPath, { force: true });
+      throw new Error(
+        `Codex failed for ${batchFile} (status=${result.status}, signal=${result.signal ?? 'none'}): `
+        + `${(result.stderr || result.stdout).slice(-4000)}`
+      );
+    }
+    try {
+      validateBatchOutput(readJudgmentOutput(temporaryOutputPath), targets, manifest.mapping);
+      renameSync(temporaryOutputPath, outputPath);
+    } catch (error) {
+      rmSync(temporaryOutputPath, { force: true });
+      throw error;
+    }
     completed++;
   }
   return { completed, skipped, batches: byBatch.size };
@@ -477,8 +540,12 @@ export async function importCodexJudgments(
         );
         const labels = new Set(allJudges.rows.map(row => row.verdict));
         const disagreement = labels.size > 1;
-        const insufficient = allJudges.rows.some(row => row.evidence_sufficiency !== 'sufficient');
-        const consensusVerdict = disagreement || insufficient ? 'needs-work' : judgment.verdict;
+        const insufficient = allJudges.rows.some(
+          row => row.evidence_sufficiency !== 'sufficient' || row.verdict === 'insufficient-evidence'
+        );
+        const consensusVerdict = insufficient
+          ? 'insufficient-evidence'
+          : disagreement ? 'needs-work' : judgment.verdict;
         const consensusConfidence = allJudges.rows.every(row => row.confidence != null)
           ? allJudges.rows.reduce((sum, row) => sum + Number(row.confidence), 0) / allJudges.rows.length
           : null;

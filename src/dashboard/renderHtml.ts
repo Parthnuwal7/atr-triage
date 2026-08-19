@@ -37,6 +37,7 @@ function evalSection(m: EvalMetrics): string {
   const cards = [
     stat('Judge pass rate', judgePass == null ? 'Not judged' : `${judgePass}% <span class="mn">(${m.goodTotal}/${m.judgedTotal})</span>`),
     stat('Judge coverage', judgeCoverage == null ? 'Not judged' : `${judgeCoverage}% <span class="mn">(${m.judgedTotal}/${total})</span>`),
+    stat('Insufficient evidence', `${m.insufficientTotal} <span class="mn">excluded from pass rate</span>`),
     stat('Manual review', `${m.manualReviewTotal} <span class="mn">flagged</span>`),
     stat('Deterministic accuracy', deterministicPct == null ? 'Not asserted' : `${deterministicPct}% <span class="mn">(${m.deterministicPassed}/${m.deterministicTotal})</span>`),
     stat('Tool observed', `${m.toolObserved}/${total}`),
@@ -47,16 +48,18 @@ function evalSection(m: EvalMetrics): string {
     stat('Avg latency', m.avgLatencyMs == null ? 'Not logged' : `${(m.avgLatencyMs / 1000).toFixed(1)}s`),
   ].join('');
   const rows = m.byCategory.map(c => {
-    const bad = c.total ? Math.round((100 * (c.broken + c.needsWork)) / c.total) : 0;
+    const productJudged = c.broken + c.needsWork + c.good;
+    const bad = productJudged ? Math.round((100 * (c.broken + c.needsWork)) / productJudged) : 0;
     return `<tr><td>${esc(c.category)}</td><td>${c.total}</td><td class="v-broken-t">${c.broken}</td>` +
       `<td class="v-needs-t">${c.needsWork}</td><td class="v-good-t">${c.good}</td>` +
+      `<td>${c.insufficient}</td>` +
       `<td>${c.avgAccuracy == null ? 'Not asserted' : c.avgAccuracy}</td><td>${bad}%</td></tr>`;
   }).join('');
   return `<h2>Benchmark metrics</h2>
     <div class="stats">${cards}</div>
-    <div class="note">Judge metrics cover every applicable case. Deterministic accuracy only covers cases with machine-checkable assertions.</div>
+    <div class="note">Judge pass rate excludes incomplete or insufficient-evidence cases. Those cases remain visible and are queued for review. Deterministic accuracy only covers cases with machine-checkable assertions.</div>
     <h2>Where it performs well vs. poorly (by category)</h2>
-    <table><thead><tr><th>Category</th><th>Total</th><th>Broken</th><th>Needs-work</th><th>Good</th><th>Deterministic avg</th><th>% not-good</th></tr></thead>
+    <table><thead><tr><th>Category</th><th>Total</th><th>Broken</th><th>Needs-work</th><th>Good</th><th>Insufficient</th><th>Deterministic avg</th><th>% not-good</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
 

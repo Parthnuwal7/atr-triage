@@ -59,7 +59,7 @@ async function main() {
         flag('run'),
         flag('out'),
         Number(flag('batch-size', '8')),
-        flag('prompt-version', 'aria-codex-judge-v1')
+        flag('prompt-version', 'aria-codex-judge-v2')
       );
       console.log(`✓ wrote ${res.cases} compact cases in ${res.batches} batches → ${res.manifestPath}`);
       break;
@@ -69,6 +69,7 @@ async function main() {
         codexBin: flag('codex-bin') || undefined,
         model: flag('model') || undefined,
         dryRun: has('dry-run'),
+        timeoutMs: Number(flag('timeout-ms', '600000')),
       });
       console.log(`✓ Codex batches complete=${res.completed} resumed=${res.skipped} total=${res.batches}`);
       break;

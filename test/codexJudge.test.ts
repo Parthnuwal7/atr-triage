@@ -13,6 +13,7 @@ import {
   codexJudgeEnvironment,
   importCodexJudgments,
   runCodexJudge,
+  validateBatchOutput,
 } from '../src/codexJudge/codexJudge.js';
 
 describe('compact Codex ARIA judging', () => {
@@ -66,12 +67,19 @@ describe('compact Codex ARIA judging', () => {
         visual_artifacts: { count: 1, artifacts: [{ artifact_kind: 'chart_or_dashboard_card', raw_payload: { data: [{ spend: 100 }] } }] },
         benchmark_context: {
           rubric: 'Use spend 100', expect: { kind: 'value', value: 100 },
+          terminal_status: 'context_limit',
+          deterministic_validation: { passed: false },
           failure_signals: [], server_events: [{ event_id: 'r:1', event_type: 'tool_execution_completed', detail: { row_count: 1 } }],
         },
       },
     }, 'blind-1');
     expect(review.evidence_digest).toMatch(/^[a-f0-9]{64}$/);
     expect(review).toMatchObject({ blind_id: 'blind-1', case_id: 'CASE-01' });
+    expect(review.evaluation_constraints).toEqual({
+      product_verdict_eligible: false,
+      ineligible_reason: 'terminal_status:context_limit',
+      deterministic_passed: false,
+    });
     expect(JSON.stringify(review)).toContain('tool_execution_completed');
     expect(JSON.stringify(review)).toContain('chart_or_dashboard_card');
   });
@@ -127,5 +135,56 @@ describe('compact Codex ARIA judging', () => {
     const verdict = await verifyDb.query<any>('SELECT judge_count,disagreement FROM verdicts');
     expect(verdict.rows[0]).toMatchObject({ judge_count: 1, disagreement: false });
     await verifyDb.end();
+  });
+
+  it('rejects unsafe judge overrides of execution and deterministic constraints', () => {
+    const target = {
+      run_id: 'run',
+      message_id: 'CASE-01',
+      evidence_digest: 'digest',
+      batch_file: 'batch.json',
+      output_file: 'output.json',
+      product_verdict_eligible: false,
+      deterministic_passed: false,
+    };
+    const baseJudgment = {
+      blind_id: 'blind',
+      evidence_digest: 'digest',
+      verdict: 'good',
+      category: 'Correctness',
+      severity: 'low',
+      failure_stage: 'none',
+      failed_component: 'none',
+      process_error: '',
+      causal_evidence: [],
+      likely_root_cause: '',
+      fix_layer: 'none',
+      rationale: 'The supplied evidence supports the expected response without contradiction.',
+      dimensions: {
+        correctness: 4,
+        grounding: 4,
+        relevance: 4,
+        scope: 4,
+        chartChoice: 4,
+        usefulness: 4,
+      },
+      confidence: 0.9,
+      evidence_sufficiency: 'sufficient',
+      fixture_issue: false,
+      deterministic_relation: 'agrees',
+      reviewer_notes: '',
+    };
+    expect(() => validateBatchOutput(
+      [baseJudgment as any],
+      [target],
+      { blind: target }
+    )).toThrow(/must be insufficient-evidence/);
+
+    const completedTarget = { ...target, product_verdict_eligible: true };
+    expect(() => validateBatchOutput(
+      [baseJudgment as any],
+      [completedTarget],
+      { blind: completedTarget }
+    )).toThrow(/cannot be good without fixture_issue/);
   });
 });
